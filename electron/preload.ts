@@ -69,6 +69,8 @@ export interface MinnowViewContext {
   viewId: string;
   /** True when the SPA runs inside a tab view under host chrome (Phase 4). */
   hosted: boolean;
+  /** Bound app when this renderer is an app-only window (`--minnow-app-window`). */
+  appId?: string;
 }
 
 function readArgvFlag(name: string): string {
@@ -81,6 +83,7 @@ const viewContext: MinnowViewContext = {
   workspacePath: readArgvFlag('minnow-workspace'),
   viewId: readArgvFlag('minnow-view-id'),
   hosted: process.argv.includes('--minnow-hosted'),
+  appId: readArgvFlag('minnow-app-window') || undefined,
 };
 
 /** Preference for closing one of several open windows. */
@@ -411,6 +414,14 @@ const minnowBridge = {
       workspacePath: string,
     ): Promise<{ ok: true } | { ok: false; error: string }> =>
       ipcRenderer.invoke(channels.WINDOW_SWITCH_WORKSPACE, workspacePath),
+    /** Open or focus a dedicated window for one released app (not Code). */
+    openAppWindow: (
+      appId: string,
+    ): Promise<{ ok: true; focused: boolean } | { ok: false; error: string }> =>
+      ipcRenderer.invoke(channels.WINDOW_OPEN_APP, appId),
+    /** Whether that app already has a dedicated window. */
+    hasAppWindow: (appId: string): Promise<{ open: boolean }> =>
+      ipcRenderer.invoke(channels.WINDOW_HAS_APP, appId),
     onMaximizedChanged: (callback: (maximized: boolean) => void): (() => void) => {
       const handler = (_event: IpcRendererEvent, maximized: boolean) => callback(maximized);
       ipcRenderer.on(channels.WINDOW_MAXIMIZED_CHANGED, handler);

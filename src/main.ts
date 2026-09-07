@@ -217,6 +217,7 @@ import { initNotificationAudioUnlock } from './notifications/sound';
 import { initOsPageBridge, isOsShellEnabled } from './os/page-bridge';
 import { initOsRouter } from './os/router';
 import { initOsShell } from './os/shell';
+import { applyAppWindowBoot } from './os/app-window';
 import { initElectronTrayBridge } from './electron-tray-bridge';
 import { installAppDialogs } from './ui/app-dialog';
 import { initializeCompanionAccess } from './companion/bootstrap';
@@ -503,6 +504,7 @@ async function startApp(): Promise<void> {
   const { initIssueAgentWatcher } = await import('./chat/issues/agent-watch');
   initIssueAgentWatcher();
   installScopedSelectAllHandler();
+  applyAppWindowBoot();
   if (isOsShellEnabled()) {
     initOsPageBridge();
     initOsShell();
@@ -523,12 +525,14 @@ async function startApp(): Promise<void> {
   }
   if (isOsShellEnabled() && !isPageReload()) {
     const hash = window.location.hash;
+    const appWindowId = window.minnow?.viewContext?.appId?.trim();
     const bootToWorkspacePicker =
-      hash === '' ||
-      hash === '#' ||
-      hash === '#/' ||
-      hash === '#/desktop' ||
-      hash.startsWith('#/app/');
+      !appWindowId &&
+      (hash === '' ||
+        hash === '#' ||
+        hash === '#/' ||
+        hash === '#/desktop' ||
+        hash.startsWith('#/app/'));
     if (bootToWorkspacePicker) {
       window.location.replace('#/workspaces');
     }

@@ -68,6 +68,7 @@ function activateSurface(id: AppId): void {
 
 /** Cycle forward (Ctrl+Tab) or backward (Ctrl+Shift+Tab) through recent rail apps. */
 export function cycleAppSurfaces(direction: 'forward' | 'backward'): void {
+  if (typeof window !== 'undefined' && window.minnow?.viewContext?.appId) return;
   const candidates = listCycleableAppSurfaces();
   if (candidates.length <= 1) return;
 

@@ -28,6 +28,11 @@
   display: none;
 }
 
+/* App-only Electron window: the bound app fills the stage; no rail. */
+html[data-app-window] #osAppRail {
+  display: none;
+}
+
 .mn-os-app-rail__nav {
   display: flex;
   flex-direction: column;

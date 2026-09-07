@@ -27,6 +27,14 @@ import { isCoarsePointer } from '../ui/mobile-layout';
 import { isResearchPanelOpen, subscribeResearchPanel } from '../ui/research-panel';
 import { launchApp } from './router';
 import type { AppId } from './types';
+import { openContextMenu } from '../ui/context-menu';
+import {
+  appWindowMenuLabel,
+  canOpenAppWindow,
+  hasOpenAppWindow,
+  isAppWindowEligible,
+  openOrFocusAppWindow,
+} from './app-window';
 
 // ── Tooltip ──────────────────────────────────────────────────────────────────
 
@@ -165,6 +173,55 @@ function handleRailClick(appId: AppId): void {
   launchApp(appId);
 }
 
+/** Suppress the native menu on every tile; custom items only when eligible. */
+function bindRailTileContextMenu(btn: HTMLButtonElement, appId: AppId): void {
+  const openMenu = (clientX: number, clientY: number): void => {
+    hideRailTooltip();
+    void showRailAppWindowMenu(btn, appId, clientX, clientY);
+  };
+
+  btn.addEventListener('contextmenu', (event) => {
+    event.preventDefault();
+    openMenu(event.clientX, event.clientY);
+  });
+  btn.addEventListener('keydown', (event) => {
+    if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
+    event.preventDefault();
+    const rect = btn.getBoundingClientRect();
+    openMenu(rect.left + 8, rect.bottom + 4);
+  });
+}
+
+async function showRailAppWindowMenu(
+  btn: HTMLButtonElement,
+  appId: AppId,
+  clientX: number,
+  clientY: number,
+): Promise<void> {
+  if (!canOpenAppWindow() || !isAppWindowEligible(appId)) return;
+  const alreadyOpen = await hasOpenAppWindow(appId);
+  openContextMenu({
+    clientX,
+    clientY,
+    restoreFocus: btn,
+    label: 'App actions',
+    items: [
+      {
+        id: 'open-app-window',
+        label: appWindowMenuLabel(alreadyOpen),
+        onSelect: () => {
+          void openOrFocusAppWindow(appId).then((result) => {
+            if (result.ok) return;
+            void import('../ui/toast').then((m) => {
+              m.showToast(result.error, 'error');
+            });
+          });
+        },
+      },
+    ],
+  });
+}
+
 const RAIL_DROP_CLASS = 'is-drop-target';
 
 /**
@@ -224,6 +281,7 @@ function buildRailButton(
   btn.appendChild(icon);
   bindRailTooltip(btn, () => label);
   btn.addEventListener('click', () => handleRailClick(appId));
+  bindRailTileContextMenu(btn, appId);
   if (appId === 'issues') {
     btn.classList.add('mn-capture-target');
     disposers.push(bindRailCaptureDrop(btn));

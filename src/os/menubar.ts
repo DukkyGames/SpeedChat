@@ -168,12 +168,14 @@ export function renderMenubar(root: HTMLElement): () => void {
       }
     }
 
-    chatToggle.hidden = !isChatToggleVisible(fgApp);
+    chatToggle.hidden = !isChatToggleVisible(fgApp) || Boolean(document.documentElement.dataset.appWindow);
     const toggleLabel = chatToggleAriaLabel(fgApp);
     if (toggleLabel) {
       chatToggle.setAttribute('aria-label', toggleLabel);
     }
     chatToggle.removeAttribute('aria-pressed');
+
+    settingsBtn.hidden = Boolean(document.documentElement.dataset.appWindow);
 
     void import('./workspace-menubar').then((m) => m.syncWorkspaceMenubarPlacement());
 

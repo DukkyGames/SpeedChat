@@ -13,6 +13,7 @@ import { isOsShellEnabled } from './page-bridge';
 import { getOsView, subscribeInstances } from './instances';
 import { launchApp } from './router';
 import { hasViewWorkspace } from '../state/view-workspace';
+import { getAppWindowId, isAppWindowRenderer } from './app-window';
 
 // ── Session ──────────────────────────────────────────────────────────────────
 
@@ -244,11 +245,18 @@ export async function beginWorkspaceGateForBoot(): Promise<{ whenChosen: Promise
   await loadWorkspaceFromServer();
 
   if (!shouldBlockBootOnWorkspaceGate()) {
-    // A window bound to a folder resolves the gate immediately and goes to Code.
+    // A window bound to a folder resolves the gate immediately.
+    // App windows stay on their bound app; workspace windows go to Code.
     if (hasViewWorkspace()) {
       markWorkspaceGatePassedThisSession();
-      launchApp('code');
+      launchApp(getAppWindowId() ?? 'code');
     }
+    return null;
+  }
+
+  if (isAppWindowRenderer()) {
+    markWorkspaceGatePassedThisSession();
+    launchApp(getAppWindowId() ?? 'code');
     return null;
   }
 

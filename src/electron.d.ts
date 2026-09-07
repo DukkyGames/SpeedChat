@@ -310,6 +310,12 @@ export interface MinnowWindowApi {
   switchWorkspace?: (
     workspacePath: string,
   ) => Promise<{ ok: true } | { ok: false; error: string }>;
+  /** Open or focus a dedicated window for one released app (not Code). */
+  openAppWindow?: (
+    appId: string,
+  ) => Promise<{ ok: true; focused: boolean } | { ok: false; error: string }>;
+  /** Whether that app already has a dedicated window. */
+  hasAppWindow?: (appId: string) => Promise<{ open: boolean }>;
 }
 
 /** One open shell window, as the workspace pickers see it. */
@@ -454,6 +460,8 @@ export interface MinnowViewContext {
   viewId: string;
   /** True when the SPA runs inside a tab view under host chrome. */
   hosted: boolean;
+  /** Bound app when this renderer is an app-only window. */
+  appId?: string;
 }
 
 export interface MinnowElectronBridge {

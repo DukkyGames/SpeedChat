@@ -18,6 +18,12 @@ export interface ShellWindowRecord {
   workspacePath: string;
   /** Stable id handed to the renderer as `viewContext.viewId`. */
   viewId: string;
+  /**
+   * When set, this is an app-only window (no rail, no chat). App windows share
+   * a folder with the workspace window but must never satisfy "folder already
+   * open" — that check exists to keep two session views off `sessions.db`.
+   */
+  appId?: string;
   lastFocusedAt: number;
 }
 
@@ -46,6 +52,7 @@ export class ShellWindowRegistry {
     windowId: number,
     workspacePath: string,
     viewId: string,
+    appId?: string,
   ): ShellWindowRecord {
     const record: ShellWindowRecord = {
       windowId,
@@ -53,6 +60,7 @@ export class ShellWindowRegistry {
       viewId,
       lastFocusedAt: this.nextFocus(),
     };
+    if (appId) record.appId = appId;
     this.byWindowId.set(windowId, record);
     return record;
   }
@@ -90,8 +98,18 @@ export class ShellWindowRegistry {
     if (!workspacePath || !workspacePath.trim()) return undefined;
     const key = this.normalizeKey(workspacePath);
     for (const record of this.byWindowId.values()) {
+      if (record.appId) continue;
       if (!record.workspacePath) continue;
       if (this.normalizeKey(record.workspacePath) === key) return record;
+    }
+    return undefined;
+  }
+
+  /** The dedicated window for this app, if any (one window per app id). */
+  findAppWindow(appId: string): ShellWindowRecord | undefined {
+    if (!appId) return undefined;
+    for (const record of this.byWindowId.values()) {
+      if (record.appId === appId) return record;
     }
     return undefined;
   }
@@ -103,7 +121,7 @@ export class ShellWindowRegistry {
   isWindowOnWorkspace(windowId: number, workspacePath: string): boolean {
     if (!workspacePath || !workspacePath.trim()) return false;
     const record = this.byWindowId.get(windowId);
-    if (!record?.workspacePath) return false;
+    if (!record?.workspacePath || record.appId) return false;
     return this.normalizeKey(record.workspacePath) === this.normalizeKey(workspacePath);
   }
 

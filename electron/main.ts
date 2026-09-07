@@ -30,6 +30,7 @@ import {
   type PersistedWindowState,
 } from './window-state.js';
 import { ShellWindowRegistry } from './shell-window-registry.js';
+import { appWindowDenialReason, isAppWindowAllowed } from './app-window-allowlist.js';
 import { resolveMinnowPort } from './minnow-port.js';
 import { disposeUpdater, initUpdater } from './updater.js';
 import {
@@ -241,6 +242,7 @@ function focusedShellWindow(): BrowserWindow | null {
 function listWorkspaceWindows(): TrayWorkspaceEntry[] {
   const out: TrayWorkspaceEntry[] = [];
   for (const record of shellWindows.list()) {
+    if (record.appId) continue;
     const win = BrowserWindow.fromId(record.windowId);
     if (!win || win.isDestroyed()) continue;
     out.push({
@@ -518,7 +520,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(channels.WINDOW_LIST_WORKSPACES, () =>
     shellWindows
       .list()
-      .filter((record) => record.workspacePath)
+      .filter((record) => record.workspacePath && !record.appId)
       .map((record) => record.workspacePath),
   );
 
@@ -538,6 +540,15 @@ function registerIpcHandlers(): void {
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win || win.isDestroyed()) return { ok: false, error: 'No window' };
     return retargetShellWindow(win, workspacePath.trim());
+  });
+
+  ipcMain.handle(channels.WINDOW_OPEN_APP, async (event, appId: unknown) => {
+    return openOrFocusAppWindow(appId, BrowserWindow.fromWebContents(event.sender));
+  });
+
+  ipcMain.handle(channels.WINDOW_HAS_APP, (_event, appId: unknown) => {
+    if (!isAppWindowAllowed(appId)) return { open: false };
+    return { open: Boolean(shellWindows.findAppWindow(appId)) };
   });
 }
 
@@ -789,12 +800,19 @@ function ensureTrayManager(): TrayManager {
  * Preload is electron/preload.mjs; Electron treats .js preloads as CommonJS.
  */
 async function createShellWindow(
-  options: { workspacePath?: string; bounds?: PersistedWindowState } = {},
+  options: { workspacePath?: string; bounds?: PersistedWindowState; appId?: string } = {},
 ): Promise<BrowserWindow> {
   const workspacePath = options.workspacePath?.trim() ?? '';
   const saved = options.bounds ?? (await loadWindowSet()).windows[0]!;
   const preloadPath = path.join(__dirname, 'preload.mjs');
   const viewId = shellWindows.nextViewId();
+  const appId = options.appId?.trim() || undefined;
+
+  const extraArgs = [
+    `--minnow-workspace=${workspacePath}`,
+    `--minnow-view-id=${viewId}`,
+  ];
+  if (appId) extraArgs.push(`--minnow-app-window=${appId}`);
 
   const win = new BrowserWindow({
     width: saved.width,
@@ -818,10 +836,7 @@ async function createShellWindow(
       webviewTag: false,
       zoomFactor: shellZoomFactorFromPercent(shellZoomPercent),
       backgroundThrottling: false,
-      additionalArguments: [
-        `--minnow-workspace=${workspacePath}`,
-        `--minnow-view-id=${viewId}`,
-      ],
+      additionalArguments: extraArgs,
     },
   });
 
@@ -836,8 +851,14 @@ async function createShellWindow(
     void openNewShellWindow();
   });
 
-  shellWindows.register(win.id, workspacePath, viewId);
-  if (workspacePath) void claimWorkspaceOnServer(workspacePath);
+  shellWindows.register(win.id, workspacePath, viewId, appId);
+  if (appId) {
+    win.setTitle(`Minnow — ${appId.charAt(0).toUpperCase()}${appId.slice(1)}`);
+  }
+  // App windows ride the main window's filesystem claim. Claiming here would
+  // bump the refcount; releasing on close could drop the allowlist while Code
+  // is still open. v1 does not persist app windows across restarts.
+  if (workspacePath && !appId) void claimWorkspaceOnServer(workspacePath);
   notifyWorkspaceWindowsChanged();
   win.on('focus', () => shellWindows.markFocused(win.id));
 
@@ -859,7 +880,9 @@ async function createShellWindow(
     win.maximize();
   }
 
-  trackWindowState(win, () => shellWindows.get(win.id)?.workspacePath ?? '');
+  if (!appId) {
+    trackWindowState(win, () => shellWindows.get(win.id)?.workspacePath ?? '');
+  }
   wireShellWindowState(win);
 
   const showFallbackTimer = setTimeout(() => {
@@ -880,7 +903,7 @@ async function createShellWindow(
     trayReadyByWindow.delete(win.id);
     rendererCrashTimestamps.delete(win.id);
     forceClosingWindowIds.delete(win.id);
-    if (record?.workspacePath) void releaseWorkspaceOnServer(record.workspacePath);
+    if (record?.workspacePath && !record.appId) void releaseWorkspaceOnServer(record.workspacePath);
     notifyWorkspaceWindowsChanged();
   });
 
@@ -1114,6 +1137,46 @@ async function openOrFocusWorkspaceWindow(
 }
 
 /**
+ * One dedicated window per app. Opening again focuses the existing window.
+ * App windows share the caller's folder but do not claim it on the server.
+ */
+async function openOrFocusAppWindow(
+  appId: unknown,
+  sender: BrowserWindow | null,
+): Promise<{ ok: true; focused: boolean } | { ok: false; error: string }> {
+  const denial = appWindowDenialReason(appId);
+  if (denial) return { ok: false, error: denial };
+  const id = appId as string;
+
+  const existing = shellWindows.findAppWindow(id);
+  if (existing) {
+    const win = BrowserWindow.fromId(existing.windowId);
+    if (win && !win.isDestroyed()) {
+      focusWindow(win);
+      return { ok: true, focused: true };
+    }
+    shellWindows.unregister(existing.windowId);
+  }
+
+  const senderRecord = sender && !sender.isDestroyed() ? shellWindows.get(sender.id) : undefined;
+  const workspacePath =
+    senderRecord?.workspacePath?.trim() ||
+    shellWindows.list().find((record) => record.workspacePath && !record.appId)?.workspacePath ||
+    '';
+  if (!workspacePath) {
+    return { ok: false, error: 'Open a workspace folder first' };
+  }
+
+  try {
+    await bootstrap();
+    await openShellWindow({ workspacePath, appId: id });
+    return { ok: true, focused: false };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
  * Switching folders inside a window is "tell main this view is now folder X,
  * then reload the renderer". Everything the old in-renderer teardown rebuilt is
  * persisted per workspace on disk, so a reload is strictly safer than a partial
@@ -1123,6 +1186,10 @@ async function retargetShellWindow(
   win: BrowserWindow,
   workspacePath: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (shellWindows.get(win.id)?.appId) {
+    return { ok: false, error: 'Cannot switch the folder of an app window' };
+  }
+
   // Already this view: focusing is enough. Replacing the window made Open plan
   // (and any other launch that passed the same folder with different spelling)
   // look like the workspace opened a second time.
@@ -1249,6 +1316,7 @@ async function openShellWindow(
     workspacePath?: string;
     bounds?: PersistedWindowState;
     replacing?: BrowserWindow;
+    appId?: string;
   } = {},
 ): Promise<BrowserWindow> {
   const replacing = options.replacing;
@@ -1264,8 +1332,11 @@ async function openShellWindow(
   const win = await createShellWindow({
     workspacePath: options.workspacePath,
     bounds,
+    appId: options.appId,
   });
-  await win.loadURL(await shellLoadUrl());
+  const baseUrl = await shellLoadUrl();
+  const hash = options.appId ? `#/app/${options.appId}` : '';
+  await win.loadURL(`${baseUrl}${hash}`);
   if (replacing && !replacing.isDestroyed()) {
     // Drop the old view only once its replacement is live, so the user never
     // sees the app with no window.

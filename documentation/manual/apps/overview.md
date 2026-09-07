@@ -6,7 +6,7 @@ Code, Research, Models, Brain, Issues and Scheduler sit on the left app rail; **
 
 Cold start opens the **workspaces picker** (`#/workspaces`). Choose a folder and you route into Code. The menubar **workspace** control opens the same picker anytime.
 
-Move between surfaces with **Ctrl+Tab** / **Ctrl+Shift+Tab**, or the grid icon in the menubar.
+Move between surfaces with **Ctrl+Tab** / **Ctrl+Shift+Tab**, or the left app rail. In the desktop app, right-click a rail tile (except Code) to open that app in its own window; choosing it again focuses the window that is already open.
 
 ## Code
 

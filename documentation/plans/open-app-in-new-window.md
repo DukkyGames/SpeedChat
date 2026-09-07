@@ -4,16 +4,16 @@ overview: Add an "Open in new window" item to the left app rail's right-click co
 todos:
   - id: W1-A
     content: "Wave 1: Electron IPC — WINDOW_OPEN_APP channel, preload bridge, openOrFocusAppWindow in main"
-    status: pending
+    status: completed
   - id: W1-B
     content: "Wave 1: Extend ShellWindowRegistry to track app windows"
-    status: pending
+    status: completed
   - id: W2-A
     content: "Wave 2: SPA app-window boot mode (viewContext.appId, app-only chrome, hash route)"
-    status: pending
+    status: completed
   - id: W3-A
     content: "Wave 3: Rail context menu with 'Open in new window' + browser fallback"
-    status: pending
+    status: completed
 isProject: true
 ---
 

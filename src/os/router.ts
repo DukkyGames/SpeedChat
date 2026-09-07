@@ -10,6 +10,7 @@ import {
 } from './instances';
 import { recordAppSurfaceFocus } from './app-focus-cycle';
 import { osOnAppClose, osOnAppOpen } from './page-bridge';
+import { getAppWindowId, isHashInAppWindow, resolveAppWindowBootHash } from './app-window';
 import { CODE_SECTION_IDS, type AppId, type CodeSectionId, type LaunchOptions, type OsRoute } from './types';
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -300,6 +301,11 @@ function applyRouteFromHash(): void {
     void import('../ui/product-wiki').then((module) => module.initProductWiki());
     return;
   }
+  const bound = getAppWindowId();
+  if (bound && !isHashInAppWindow(window.location.hash, bound)) {
+    window.location.replace(resolveAppWindowBootHash(bound));
+    return;
+  }
   applyingRoute = true;
   try {
     const raw = window.location.hash;
@@ -330,6 +336,12 @@ function onHashChange(): void {
 
 /** Navigate to the workspace gate. */
 export function navigateToWorkspaces(): void {
+  const bound = getAppWindowId();
+  if (bound) {
+    const next = resolveAppWindowBootHash(bound);
+    if (window.location.hash !== next) window.location.hash = next;
+    return;
+  }
   const next = '#/workspaces';
   if (window.location.hash !== next) {
     window.location.hash = next;
@@ -349,6 +361,8 @@ export function launchApp(appId: AppId, options?: LaunchOptions): void {
     launchApp('code', { ...options, codeSection: 'chat' });
     return;
   }
+  const bound = getAppWindowId();
+  if (bound && appId !== bound) return;
   if (rejectUnavailableApp(appId)) return;
 
   if (options?.settingsSection) {

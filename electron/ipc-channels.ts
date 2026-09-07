@@ -80,6 +80,10 @@ export const WINDOW_CLOSE_WORKSPACE = 'minnow:window:close-workspace';
 export const WINDOW_WORKSPACES_CHANGED = 'minnow:window:workspaces-changed';
 /** Point this window at a different folder, then reload it. */
 export const WINDOW_SWITCH_WORKSPACE = 'minnow:window:switch-workspace';
+/** Open (or focus) a dedicated window for one released app. */
+export const WINDOW_OPEN_APP = 'minnow:window:open-app';
+/** Whether that app already has a dedicated window (for menu labels). */
+export const WINDOW_HAS_APP = 'minnow:window:has-app';
 
 export const TRAY_PUBLISH_STATUS = 'minnow:tray:publish-status';
 export const TRAY_NOTIFY_READY = 'minnow:tray:notify-ready';

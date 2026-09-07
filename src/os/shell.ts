@@ -9,6 +9,7 @@ import { initAppRail } from './app-rail';
 import { renderMenubar } from './menubar';
 import { initWorkspaceGate } from './workspace-gate';
 import { isOsShellEnabled } from './page-bridge';
+import { isAppWindowRenderer } from './app-window';
 
 let shellCleanup: (() => void) | null = null;
 
@@ -95,8 +96,18 @@ export function initOsShell(): void {
   const { menubar } = ensureShellDom();
 
   const cleanupMenubar = renderMenubar(menubar);
-  const cleanupRail = initAppRail(document.getElementById('osAppRail')!);
-  initWorkspaceGate();
+  const appWindow = isAppWindowRenderer();
+  const railEl = document.getElementById('osAppRail');
+  const cleanupRail = appWindow || !railEl
+    ? () => {}
+    : initAppRail(railEl);
+  if (appWindow && railEl) {
+    railEl.hidden = true;
+    railEl.replaceChildren();
+  }
+  if (!appWindow) {
+    initWorkspaceGate();
+  }
   shellCleanup = () => {
     cleanupMenubar();
     cleanupRail();

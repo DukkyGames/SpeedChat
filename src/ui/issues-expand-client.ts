@@ -15,6 +15,7 @@ import {
   type ExpandedIssueDraft,
   type IssueExpandSource,
 } from '../chat/issues/expand-issue';
+import { loadPromptExpanderConfig } from '../config/prompt-expander-meta';
 import { encodeModelSelectKey } from '../lib/model-select-key';
 import { resolveLibraryRequestBinding } from '../models/library-request-binding';
 import { LIBRARY_MODEL_PROVIDER_ID } from '../models/model-select-library';
@@ -25,9 +26,9 @@ import {
   EXPAND_FAILED_MESSAGE,
   EXPAND_MODEL_LOAD_FAILED_MESSAGE,
   EXPAND_NO_MODEL_MESSAGE,
-  resolveExpandPromptBinding,
-  type ExpandPromptBinding,
 } from './composer-expand-client';
+import { readDefaultModelBinding } from './default-model';
+import { resolveIssueExpandPromptBindingFromDefault, type ExpandPromptBinding } from './composer-expand-binding';
 import { setStatus } from './status';
 
 /** Room for a structured description — more than a prompt rewrite, still not an essay. */
@@ -50,6 +51,18 @@ export interface ExpandIssueRequest {
 export interface ExpandIssueResult {
   draft: ExpandedIssueDraft | null;
   error?: string;
+}
+
+/** Issues expander binding: Settings override, else the top-bar default model, else the default provider. */
+async function resolveIssueExpandPromptBinding(): Promise<ExpandPromptBinding> {
+  const config = await loadPromptExpanderConfig();
+  const { modelId, providerId } = readDefaultModelBinding();
+  const fallbackProviderId = (await resolveProvider()).id;
+  return resolveIssueExpandPromptBindingFromDefault(
+    config,
+    { providerId, modelId },
+    fallbackProviderId,
+  );
 }
 
 async function resolveExpandSendBinding(
@@ -101,7 +114,7 @@ function endErrorMessage(event?: GenerationEndEvent): string {
 export async function fetchExpandedIssue(
   input: ExpandIssueRequest,
 ): Promise<ExpandIssueResult> {
-  const picked = await resolveExpandPromptBinding();
+  const picked = await resolveIssueExpandPromptBinding();
   if (!picked.modelId.trim()) {
     return { draft: null, error: EXPAND_NO_MODEL_MESSAGE };
   }

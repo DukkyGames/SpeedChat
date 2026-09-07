@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 
 import { computeEffectivePromptExpanderBinding } from '../../src/settings/model-routing-effective.ts';
-import { resolveExpandPromptBindingFromChat } from '../../src/ui/composer-expand-binding.ts';
+import { resolveExpandPromptBindingFromChat, resolveIssueExpandPromptBindingFromDefault } from '../../src/ui/composer-expand-binding.ts';
 
 const CHAT = { providerId: 'composer-prov', modelId: 'composer-model' };
 
@@ -53,6 +53,40 @@ describe('resolveExpandPromptBindingFromChat', () => {
 
   test('falls back to default provider when chat has model but no provider', () => {
     const binding = resolveExpandPromptBindingFromChat(
+      { providerId: '', modelId: '' },
+      { modelId: 'solo-model' },
+      'fallback-prov',
+    );
+    assert.equal(binding.modelId, 'solo-model');
+    assert.equal(binding.providerId, 'fallback-prov');
+  });
+});
+
+describe('resolveIssueExpandPromptBindingFromDefault', () => {
+  const DEFAULT_BINDING = { providerId: 'default-prov', modelId: 'default-model' };
+
+  test('uses routing override when pinned', () => {
+    const binding = resolveIssueExpandPromptBindingFromDefault(
+      { providerId: 'pinned-prov', modelId: 'pinned-model' },
+      DEFAULT_BINDING,
+      'fallback-prov',
+    );
+    assert.equal(binding.modelId, 'pinned-model');
+    assert.equal(binding.providerId, 'pinned-prov');
+  });
+
+  test('uses the top-bar default model when routing is unset', () => {
+    const binding = resolveIssueExpandPromptBindingFromDefault(
+      { providerId: '', modelId: '' },
+      DEFAULT_BINDING,
+      'fallback-prov',
+    );
+    assert.equal(binding.modelId, 'default-model');
+    assert.equal(binding.providerId, 'default-prov');
+  });
+
+  test('falls back to default provider when the default binding has a model but no provider', () => {
+    const binding = resolveIssueExpandPromptBindingFromDefault(
       { providerId: '', modelId: '' },
       { modelId: 'solo-model' },
       'fallback-prov',

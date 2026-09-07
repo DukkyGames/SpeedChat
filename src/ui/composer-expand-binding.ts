@@ -20,3 +20,16 @@ export function resolveExpandPromptBindingFromChat(
   const providerId = effective.providerId.trim() || fallbackProviderId;
   return { providerId, modelId };
 }
+
+/** Issues expander binding: settings override, else the global default model (top bar), else default provider. */
+export function resolveIssueExpandPromptBindingFromDefault(
+  config: PromptExpanderConfig,
+  defaultBinding: { providerId?: string; modelId: string },
+  fallbackProviderId: string,
+): ExpandPromptBinding {
+  return resolveExpandPromptBindingFromChat(
+    config,
+    { providerId: defaultBinding.providerId ?? '', modelId: defaultBinding.modelId },
+    fallbackProviderId,
+  );
+}

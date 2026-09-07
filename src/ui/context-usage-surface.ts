@@ -24,7 +24,6 @@ const SURFACES: Record<'code' | 'chat' | 'desktop', ContextUsageSurface> = {
 function resolveSurfaceKey(): keyof typeof SURFACES {
   const foregroundAppId = getForegroundAppId();
   if (foregroundAppId === 'code') return 'code';
-  if (false) return 'desktop';
   if (isChatAppForeground()) return 'chat';
   if (getOsView() === 'workspaces' && document.getElementById('desktopContextRing')) return 'desktop';
   return 'code';

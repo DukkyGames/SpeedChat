@@ -87,13 +87,12 @@ import {
   type ChatTurnEventPainter,
   type ChatTurnPaintHost,
 } from './run-turn-chat-paint';
-import { createStreamingStatsPublisher } from './streaming-stats';
+import { buildTurnDisplayMeta, createStreamingStatsPublisher } from './streaming-stats';
 import {
   applyStreamMetaEvent,
   runtimeStatusFromStreamMetaRuntime,
   streamMetaFromRoundEnd,
 } from './turn-stream-meta';
-import { aggregateTurnMetaSegments } from './plans/stats-math';
 import {
   finalizeResponseMeta,
   type StreamMetaAccumulator,
@@ -1029,7 +1028,6 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
     let statsT0 = 0;
     let statsTFirst: number | null = null;
     let liveStreamMeta: StreamMetaAccumulator = {};
-    const turnUsageSegments: Usage[] = [];
     const turnStatsSegments: Array<{ stats: Stats; usage: Usage }> = [];
     const metricsState: {
       lastRound: { stats: Stats; usage: Usage; model_info: ModelInfo } | null;
@@ -1048,7 +1046,6 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
         tFirst: statsTFirst,
         partialText: snap.lastDelta,
         partialThinkingLength: snap.lastThinking.length,
-        priorSegments: turnUsageSegments,
         priorStatsSegments: turnStatsSegments,
         modelId: metricsState.streamModelId || sendModelId,
         modelInfo: chat.modelInfo ?? undefined,
@@ -1446,7 +1443,6 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
           const tFirst = event.tFirst ?? statsTFirst ?? tEnd;
           metricsState.lastRound = finalizeResponseMeta(roundStreamMeta, t0, tFirst, tEnd);
           if (metricsState.lastRound.usage && Object.keys(metricsState.lastRound.usage).length > 0) {
-            turnUsageSegments.push(metricsState.lastRound.usage);
             turnStatsSegments.push({
               stats: metricsState.lastRound.stats,
               usage: metricsState.lastRound.usage,
@@ -1613,9 +1609,7 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
         toolCallCount: 0,
       };
       publishLiveStats(painted, true, {});
-      const displayMeta = turnStatsSegments.length
-        ? aggregateTurnMetaSegments(turnStatsSegments)
-        : metricsState.lastRound;
+      const displayMeta = buildTurnDisplayMeta(turnStatsSegments, metricsState.lastRound);
       if (displayMeta) {
         chat.lastStats = buildLastStatsSnapshot(displayMeta.stats, displayMeta.usage);
         const modelInfo = resolveModelInfo(

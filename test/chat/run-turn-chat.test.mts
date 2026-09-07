@@ -712,8 +712,14 @@ describe('P6-D runTurn chat adapter (MIN-726)', () => {
       ...SIMPLE_TURN,
     });
 
+    // Token counts are context occupancy — the final round's prompt + reply.
+    // Summing completions (100 + 200 + 50) double-counts: rounds 0 and 1 are
+    // already inside round 2's 3000-token prompt, and that rollup is what used
+    // to make the strip disagree with the ring and the last assistant chip.
     assert.equal(chat.lastStats?.prompt_tokens, 3000, 'strip keeps latest prompt, not a sum');
-    assert.equal(chat.lastStats?.completion_tokens, 350);
+    assert.equal(chat.lastStats?.completion_tokens, 50, 'final round only, not the turn rollup');
+    assert.equal(chat.lastStats?.total_tokens, 3050);
+    // Rates still average across every round of the turn.
     assert.ok(chat.lastStats?.tokens_per_second != null);
     assert.ok(
       Math.abs((chat.lastStats?.tokens_per_second ?? 0) - 21.428571) < 0.05,

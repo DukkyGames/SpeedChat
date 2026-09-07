@@ -235,13 +235,13 @@ function renderPanelBody(budget: ContextBudget): string {
   const lastTurnLine =
     lastTurnParts.length > 0
       ? `<p class="context-usage-breakdown__api-turn">
-          <span class="context-usage-breakdown__api-turn-label">Last turn (API)</span>
+          <span class="context-usage-breakdown__api-turn-label">Last round (API)</span>
           <span class="context-usage-breakdown__api-turn-value">${lastTurnParts.join(' · ')}</span>
         </p>`
       : '';
   const estimateNote = budget.isEstimate
     ? `<p class="context-usage-breakdown__note">Section sizes use characters ÷ 4. Token counts vary by model tokenizer.</p>`
-    : `<p class="context-usage-breakdown__note">Used matches last-turn API total. Section rows are scaled estimates.</p>`;
+    : `<p class="context-usage-breakdown__note">Used matches the last API round (prompt + reply) — the same number the metrics strip and the last chat bubble show. Section rows are scaled estimates.</p>`;
 
   return `
     <header class="context-usage-breakdown__header">

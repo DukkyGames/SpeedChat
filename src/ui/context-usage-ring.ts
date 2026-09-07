@@ -79,7 +79,7 @@ function formatTooltip(budget: ContextBudget): string {
     if (budget.lastTurnTotalTokens != null) {
       parts.push(`total ${formatCount(budget.lastTurnTotalTokens)}`);
     }
-    lines.push(`Last turn (API): ${parts.join(', ')}`);
+    lines.push(`Last round (API): ${parts.join(', ')}`);
   }
   lines.push(TOKEN_ESTIMATE_TOOLTIP);
   return lines.join('\n');
@@ -145,12 +145,17 @@ async function runRefresh(generation: number): Promise<void> {
     });
     if (!shouldApplyRefreshResult(generation, chatIdAtStart)) return;
     lastBudget = budget;
-    const surface = getActiveContextUsageSurface();
-    paintRingSurface(surface, budget);
+    // Every mounted ring tracks the one active chat, so paint them all — a
+    // background surface must never keep a stale number to show on app switch.
+    for (const surface of listContextUsageSurfaces()) {
+      paintRingSurface(surface, budget);
+    }
     syncContextUsageBreakdownIfOpen(budget);
   } catch {
     if (!shouldApplyRefreshResult(generation, chatIdAtStart)) return;
-    paintUnavailable(getActiveContextUsageSurface());
+    for (const surface of listContextUsageSurfaces()) {
+      paintUnavailable(surface);
+    }
   }
 }
 

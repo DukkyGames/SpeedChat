@@ -4,10 +4,7 @@ import {
   type StreamMetaAccumulator,
 } from '../api/chat';
 import { resolveModelInfo } from '../api/models';
-import {
-  aggregateTurnUsageSegments,
-  averageStatsSegments,
-} from '../chat/plans/stats-math';
+import { averageStatsSegments } from '../chat/plans/stats-math';
 import { estimateTokensFromText } from './prompts/token-estimate-core';
 import { getActiveChat, markChatDirty } from '../state/sessions';
 import { buildLastStatsSnapshot, updateStrip } from '../ui/stats';
@@ -22,8 +19,6 @@ export interface StreamingStatsSnapshot {
   tFirst: number | null;
   partialText: string;
   partialThinkingLength?: number;
-  /** Completed usage from earlier tool-loop rounds in the same user turn. */
-  priorSegments?: Usage[];
   /** Completed stats + usage from earlier tool-loop rounds (weighted live tok/s). */
   priorStatsSegments?: Array<{ stats: Stats; usage: Usage }>;
   modelId?: string;
@@ -65,39 +60,6 @@ export function buildCurrentRoundUsage(
   return out;
 }
 
-/** Usage for an in-progress stream: provider chunk usage when present, else char estimate. */
-export function buildLiveStreamUsage(
-  input: StreamingStatsSnapshot,
-  _now = performance.now(),
-): Usage {
-  const { streamMeta, partialText, priorSegments } = input;
-  const priorSegmentsList = priorSegments ?? [];
-  const priorAgg = priorSegmentsList.length
-    ? aggregateTurnUsageSegments(priorSegmentsList)
-    : {};
-
-  const roundEstimate = estimateTokensFromText(partialText);
-
-  const live = streamMeta.usage;
-  if (hasLiveCompletionUsage(live)) {
-    if (!priorSegmentsList.length) return { ...live! };
-    return aggregateTurnUsageSegments([...priorSegmentsList, live!]);
-  }
-
-  const completion = (priorAgg.completion_tokens ?? 0) + roundEstimate;
-  const prompt = live?.prompt_tokens ?? priorAgg.prompt_tokens;
-
-  const out: Usage = {};
-  if (prompt != null && Number.isFinite(prompt)) out.prompt_tokens = prompt;
-  if (roundEstimate > 0 || priorAgg.completion_tokens != null) {
-    out.completion_tokens = completion;
-  }
-  if (out.prompt_tokens != null || out.completion_tokens != null) {
-    out.total_tokens = (out.prompt_tokens ?? 0) + (out.completion_tokens ?? 0);
-  }
-  return out;
-}
-
 /** Timing stats (TTFT, generation time, tok/s) for a stream still in flight. */
 export function buildLiveStreamStats(
   input: StreamingStatsSnapshot,
@@ -115,14 +77,39 @@ export function buildLiveStreamStats(
   return averageStatsSegments([...priorList, { stats: roundStats, usage: roundUsage }]);
 }
 
-/** Combined live stats + usage for the metrics strip. */
+/**
+ * Combined live stats + usage for the metrics strip.
+ *
+ * Rates average across the turn's rounds; token counts stay on the current round
+ * so the strip, the last assistant chip, and the context ring agree.
+ */
 export function buildLiveStreamMeta(
   input: StreamingStatsSnapshot,
   now = performance.now(),
 ): { stats: Stats; usage: Usage } {
-  const usage = buildLiveStreamUsage(input, now);
+  const usage = buildCurrentRoundUsage(input, now);
   const stats = buildLiveStreamStats(input, now);
   return { stats, usage };
+}
+
+/**
+ * Turn-end meta for the metrics strip and `chat.lastStats`.
+ *
+ * Same split as the live path: rates average across every round of the tool
+ * loop, token counts stay on the final round. Summing completions across rounds
+ * would double-count — each round's reply is already inside the next round's
+ * prompt — and that rollup is what used to make the ring disagree with the
+ * strip and with the last assistant chip.
+ */
+export function buildTurnDisplayMeta(
+  turnStatsSegments: Array<{ stats: Stats; usage: Usage }>,
+  lastRound: { stats: Stats; usage: Usage } | null,
+): { stats: Stats; usage: Usage } | null {
+  if (turnStatsSegments.length === 0) return lastRound;
+  return {
+    stats: averageStatsSegments(turnStatsSegments),
+    usage: lastRound?.usage ?? turnStatsSegments[turnStatsSegments.length - 1].usage,
+  };
 }
 
 export interface StreamingStatsPublisher {

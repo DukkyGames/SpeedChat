@@ -3,6 +3,7 @@ import { getSubAgentTypeConfig } from '../agents/sub-agent-config';
 import { subscribeSubAgentRuns } from '../agents/sub-agent-events';
 import { AGENT_ACTIVITY_OPEN_KEY } from '../constants';
 import { getContextBudget } from '../chat/context-usage';
+import { resolveEffectiveChatModelBinding } from './default-model';
 import {
   listMainTurnActivity,
   subscribeMainTurnActivity,
@@ -279,7 +280,13 @@ async function loadContextFills(chats: { id: string }[]): Promise<Map<string, Ag
       const chat = state.chats.find((x) => x.id === c.id);
       if (!chat) return;
       try {
-        const budget = await getContextBudget({ chat });
+        // Same model binding the ring resolves, so both surfaces land on the
+        // same context limit (and therefore the same percent) for a chat.
+        const { selectValue } = resolveEffectiveChatModelBinding(chat);
+        const budget = await getContextBudget({
+          chat,
+          modelId: selectValue || chat.modelId || '',
+        });
         map.set(c.id, {
           percent: budget.percent,
           isEstimate: budget.isEstimate,

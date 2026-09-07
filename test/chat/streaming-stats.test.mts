@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
+  buildCurrentRoundUsage,
   buildLiveStreamMeta,
   buildLiveStreamStats,
-  buildLiveStreamUsage,
+  buildTurnDisplayMeta,
   LIVE_STREAM_STATS_THROTTLE_MS,
 } from '../../src/chat/streaming-stats.ts';
 import { estimateTokensFromText } from '../../src/chat/prompts/token-estimate-core.ts';
@@ -17,9 +18,9 @@ function proseTokens(chars: number): number {
   return estimateTokensFromText('x'.repeat(chars));
 }
 
-describe('buildLiveStreamUsage', () => {
+describe('buildCurrentRoundUsage', () => {
   test('estimates completion tokens from partial assistant text', () => {
-    const usage = buildLiveStreamUsage({
+    const usage = buildCurrentRoundUsage({
       streamMeta: {},
       t0: 0,
       tFirst: 10,
@@ -32,7 +33,7 @@ describe('buildLiveStreamUsage', () => {
   });
 
   test('does not estimate completion from thinking length (provider reports it)', () => {
-    const usage = buildLiveStreamUsage({
+    const usage = buildCurrentRoundUsage({
       streamMeta: {},
       t0: 0,
       tFirst: 10,
@@ -44,7 +45,7 @@ describe('buildLiveStreamUsage', () => {
   });
 
   test('prefers provider usage from stream meta when present', () => {
-    const usage = buildLiveStreamUsage({
+    const usage = buildCurrentRoundUsage({
       streamMeta: {
         usage: { prompt_tokens: 1200, completion_tokens: 42, total_tokens: 1242 },
       },
@@ -59,38 +60,29 @@ describe('buildLiveStreamUsage', () => {
     assert.equal(usage.total_tokens, 1242);
   });
 
-  test('sums prior tool-loop segments with the live round', () => {
-    const usage = buildLiveStreamUsage({
-      streamMeta: {},
-      t0: 0,
-      tFirst: 10,
-      partialText: 'abcd',
-      partialThinkingLength: 0,
-      priorSegments: [{ prompt_tokens: 500, completion_tokens: 80, total_tokens: 580 }],
-    });
-
-    assert.equal(usage.prompt_tokens, 500);
-    assert.equal(usage.completion_tokens, 81);
-    assert.equal(usage.total_tokens, 581);
-  });
-
-  test('does not sum prompt tokens across completed tool-loop rounds', () => {
-    const usage = buildLiveStreamUsage({
+  test('ignores completed tool-loop rounds — earlier replies are already in this prompt', () => {
+    const usage = buildCurrentRoundUsage({
       streamMeta: {
         usage: { prompt_tokens: 12_000, completion_tokens: 40, total_tokens: 12_040 },
       },
       t0: 0,
       tFirst: 10,
       partialText: '',
-      priorSegments: [
-        { prompt_tokens: 10_000, completion_tokens: 80, total_tokens: 10_080 },
-        { prompt_tokens: 11_000, completion_tokens: 60, total_tokens: 11_060 },
+      priorStatsSegments: [
+        {
+          stats: {},
+          usage: { prompt_tokens: 10_000, completion_tokens: 80, total_tokens: 10_080 },
+        },
+        {
+          stats: {},
+          usage: { prompt_tokens: 11_000, completion_tokens: 60, total_tokens: 11_060 },
+        },
       ],
     });
 
     assert.equal(usage.prompt_tokens, 12_000);
-    assert.equal(usage.completion_tokens, 180);
-    assert.equal(usage.total_tokens, 12_180);
+    assert.equal(usage.completion_tokens, 40);
+    assert.equal(usage.total_tokens, 12_040);
   });
 });
 
@@ -170,9 +162,9 @@ describe('buildLiveStreamStats', () => {
   });
 });
 
-describe('buildLiveStreamUsage with fake stream_meta', () => {
+describe('buildCurrentRoundUsage with fake stream_meta', () => {
   test('live strip uses provider prompt_tokens, not a character estimate', () => {
-    const usage = buildLiveStreamUsage({
+    const usage = buildCurrentRoundUsage({
       streamMeta: {
         usage: { prompt_tokens: 4096, completion_tokens: 12, total_tokens: 4108 },
         stats: { tokens_per_second: 37.5 },
@@ -191,6 +183,32 @@ describe('buildLiveStreamUsage with fake stream_meta', () => {
 });
 
 describe('buildLiveStreamMeta', () => {
+  test('keeps token counts round-scoped while rates average across the turn', () => {
+    const meta = buildLiveStreamMeta(
+      {
+        streamMeta: {
+          usage: { prompt_tokens: 3000, completion_tokens: 50, total_tokens: 3050 },
+          stats: { tokens_per_second: 50, generation_time: 1, time_to_first_token: 0.1 },
+        },
+        t0: 0,
+        tFirst: 100,
+        partialText: '',
+        priorStatsSegments: [
+          {
+            stats: { tokens_per_second: 10, generation_time: 10, time_to_first_token: 0.2 },
+            usage: { prompt_tokens: 1000, completion_tokens: 100, total_tokens: 1100 },
+          },
+        ],
+      },
+      1100,
+    );
+
+    // Context occupancy, not the turn rollup: 3050, never 3000 + 100 + 50.
+    assert.equal(meta.usage.total_tokens, 3050);
+    assert.equal(meta.usage.completion_tokens, 50);
+    assert.ok(meta.stats.tokens_per_second != null && meta.stats.tokens_per_second < 50);
+  });
+
   test('returns both usage and timing stats for the strip', () => {
     const meta = buildLiveStreamMeta(
       {
@@ -204,6 +222,46 @@ describe('buildLiveStreamMeta', () => {
 
     assert.equal(meta.usage.completion_tokens, proseTokens(80));
     assert.ok(meta.stats.tokens_per_second != null);
+  });
+});
+
+describe('buildTurnDisplayMeta', () => {
+  const rounds = [
+    {
+      stats: { tokens_per_second: 10, generation_time: 10, time_to_first_token: 0.2 },
+      usage: { prompt_tokens: 10_000, completion_tokens: 500, total_tokens: 10_500 },
+    },
+    {
+      stats: { tokens_per_second: 20, generation_time: 5, time_to_first_token: 0.4 },
+      usage: { prompt_tokens: 11_200, completion_tokens: 400, total_tokens: 11_600 },
+    },
+    {
+      stats: { tokens_per_second: 50, generation_time: 2, time_to_first_token: 0.6 },
+      usage: { prompt_tokens: 12_400, completion_tokens: 800, total_tokens: 13_200 },
+    },
+  ];
+
+  test('takes token counts from the final round, never the tool-loop rollup', () => {
+    const meta = buildTurnDisplayMeta(rounds, rounds[2]);
+
+    assert.equal(meta?.usage.prompt_tokens, 12_400);
+    assert.equal(meta?.usage.completion_tokens, 800);
+    // The old rollup was 12_400 + (500 + 400 + 800) = 14_100.
+    assert.equal(meta?.usage.total_tokens, 13_200);
+  });
+
+  test('still averages rates across every round of the turn', () => {
+    const meta = buildTurnDisplayMeta(rounds, rounds[2]);
+
+    // Completion-weighted: (10*500 + 20*400 + 50*800) / 1700 = 31.17…
+    assert.ok(meta?.stats.tokens_per_second != null);
+    assert.ok(Math.abs(meta!.stats.tokens_per_second! - 31.176) < 0.01);
+  });
+
+  test('falls back to the last round when no segment carried usage', () => {
+    const lastRound = { stats: { tokens_per_second: 12 }, usage: { total_tokens: 900 } };
+    assert.deepEqual(buildTurnDisplayMeta([], lastRound), lastRound);
+    assert.equal(buildTurnDisplayMeta([], null), null);
   });
 });
 

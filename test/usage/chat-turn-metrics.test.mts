@@ -60,6 +60,25 @@ describe('mergeLastStats', () => {
     assert.equal(merged?.tokens_per_second, 40);
   });
 
+  test('a same-round history row overrides a stale tool-loop rollup', () => {
+    // What older builds persisted for a 3-round turn: latest prompt + summed
+    // completions (100 + 200 + 50). The final assistant row knows the truth.
+    const storedRollup = buildLastStatsSnapshot(
+      { tokens_per_second: 21.4, generation_time: 21 },
+      { prompt_tokens: 3_000, completion_tokens: 350, total_tokens: 3_350 },
+    );
+    const finalRound = buildLastStatsSnapshot(
+      { tokens_per_second: 50, generation_time: 1 },
+      { prompt_tokens: 3_000, completion_tokens: 50, total_tokens: 3_050 },
+    );
+    const merged = mergeLastStats(storedRollup, finalRound);
+    assert.equal(merged?.completion_tokens, 50);
+    assert.equal(merged?.total_tokens, 3_050);
+    // Rates stay turn-averaged.
+    assert.equal(merged?.tokens_per_second, 21.4);
+    assert.equal(lastStatsNeedsHydration(storedRollup, merged!), true);
+  });
+
   test('does not mix completions from a different prompt size', () => {
     const stored = buildLastStatsSnapshot({}, {
       prompt_tokens: 3_000,

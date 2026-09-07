@@ -100,8 +100,26 @@ function promptsCompatible(a: number | null, b: number | null): boolean {
 }
 
 /**
+ * Both snapshots priced the same API round.
+ * Needs two real prompt sizes — a null prompt is "unknown", not "matching".
+ */
+function describesSameRound(a: LastStats, b: LastStats): boolean {
+  return (
+    a.prompt_tokens != null &&
+    b.prompt_tokens != null &&
+    a.prompt_tokens === b.prompt_tokens
+  );
+}
+
+/**
  * Fill null fields from fallback when both snapshots describe the same request.
  * Different `prompt_tokens` means a different round — keep primary as-is.
+ *
+ * When both price the same round, the history row wins on token counts: it is
+ * always one API round, whereas a snapshot persisted by an older build may be a
+ * tool-loop rollup (latest prompt + summed completions) that over-reports the
+ * context window. Timings still come from the stored snapshot, which averages
+ * the whole turn.
  */
 export function mergeLastStats(
   primary: LastStats | null | undefined,
@@ -115,6 +133,8 @@ export function mergeLastStats(
   }
 
   const primaryTotal = totalIsPromptOnlyPlaceholder(primary) ? null : primary.total_tokens;
+  const roundTokensWin =
+    describesSameRound(primary, fallback) && fallback.completion_tokens != null;
 
   return {
     tokens_per_second: primary.tokens_per_second ?? fallback.tokens_per_second,
@@ -122,8 +142,12 @@ export function mergeLastStats(
     generation_time: primary.generation_time ?? fallback.generation_time,
     stop_reason: primary.stop_reason ?? fallback.stop_reason,
     prompt_tokens: primary.prompt_tokens ?? fallback.prompt_tokens,
-    completion_tokens: primary.completion_tokens ?? fallback.completion_tokens,
-    total_tokens: primaryTotal ?? fallback.total_tokens,
+    completion_tokens: roundTokensWin
+      ? fallback.completion_tokens
+      : (primary.completion_tokens ?? fallback.completion_tokens),
+    total_tokens: roundTokensWin
+      ? (fallback.total_tokens ?? primaryTotal)
+      : (primaryTotal ?? fallback.total_tokens),
   };
 }
 
@@ -164,6 +188,21 @@ export function lastStatsNeedsHydration(
 ): boolean {
   if (!stored) return lastStatsHasMetrics(resolved);
   if (totalIsPromptOnlyPlaceholder(stored) && resolved.completion_tokens != null) return true;
+  // A stale tool-loop rollup from an older build: same counts, different values.
+  if (
+    stored.completion_tokens != null &&
+    resolved.completion_tokens != null &&
+    stored.completion_tokens !== resolved.completion_tokens
+  ) {
+    return true;
+  }
+  if (
+    stored.total_tokens != null &&
+    resolved.total_tokens != null &&
+    stored.total_tokens !== resolved.total_tokens
+  ) {
+    return true;
+  }
   return (
     (stored.total_tokens == null && resolved.total_tokens != null) ||
     (stored.prompt_tokens == null && resolved.prompt_tokens != null) ||

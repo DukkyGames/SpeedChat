@@ -27,7 +27,7 @@ disable-model-invocation: true
 
 ## Gitmoji (when team uses them)
 
-Prefix the subject with one emoji when the project convention calls for it:
+Prefix the subject with one emoji when the project convention calls for it. Use the Unicode character (✨), never a colon shortcode (`:sparkles:`):
 
 | Emoji | Type |
 |-------|------|

@@ -1,3 +1,4 @@
+import { expandGitmojiShortcodes } from '../lib/gitmoji-shortcodes.mjs';
 import { gitDiff, gitShow } from '../state/git-api';
 import { showViewerSplit, hideViewerSplit } from './file-layout';
 import { basename } from './file-tree-path';
@@ -284,7 +285,7 @@ function mountCommitPanelChrome(shortSha: string, subject: string, statLine: str
   metaText.className = 'git-commit-diff__meta-text';
   const title = document.createElement('h2');
   title.className = 'git-commit-diff__title';
-  title.textContent = subject || `Commit ${shortSha}`;
+  title.textContent = expandGitmojiShortcodes(subject) || `Commit ${shortSha}`;
   const detail = document.createElement('p');
   detail.className = 'git-commit-diff__detail';
   detail.textContent = statLine ? `${shortSha} — ${statLine}` : shortSha;

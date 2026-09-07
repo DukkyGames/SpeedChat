@@ -119,6 +119,18 @@ describe('git API', () => {
     assert.ok(history.commits?.some((c) => c.subject === 'add new file'));
   });
 
+  test('commit expands gitmoji shortcodes into Unicode', async () => {
+    await fs.writeFile(path.join(repoDir, 'gitmoji.txt'), 'x', 'utf8');
+    await stage({ cwd: repoDir, paths: ['gitmoji.txt'] });
+    const committed = await commit({
+      cwd: repoDir,
+      message: ':sparkles: add gitmoji fixture',
+    });
+    assert.equal(committed.ok, true);
+    const history = await log({ cwd: repoDir, count: 5 });
+    assert.ok(history.commits?.some((c) => c.subject === '✨ add gitmoji fixture'));
+  });
+
   test('stage skips paths that no longer match anything', async () => {
     // MIN-651: the chat ledger keeps every path an agent touched, including a file it
     // created and deleted again. One such ghost used to abort the whole `git add`.

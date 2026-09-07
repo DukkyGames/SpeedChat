@@ -73,6 +73,7 @@ import {
 } from '../tools/read-document.js';
 import { looksLikeBinaryBuffer } from '../tools/binary-sniff.js';
 import { isDocumentFilePath } from '../../src/attachments/document-extensions.mjs';
+import { expandGitmojiShortcodes } from '../../src/lib/gitmoji-shortcodes.mjs';
 import {
   toolCreatePdf,
   toolCreateSpreadsheet,
@@ -851,7 +852,7 @@ async function toolGitCommit(args) {
   if (!message || typeof message !== 'string') {
     return 'Error: message is required';
   }
-  const result = await runGit(['commit', '-m', message]);
+  const result = await runGit(['commit', '-m', expandGitmojiShortcodes(message)]);
   if (String(result).trimStart().startsWith('Error')) {
     return result;
   }

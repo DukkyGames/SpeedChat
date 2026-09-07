@@ -2,6 +2,7 @@ import { appendIssueLinks } from '../../state/issues-store.ts';
 import { gitCheckout, gitPush, gitRemoteUrl } from '../../state/git-api.ts';
 import { forgeStatus } from '../../state/forge-api.ts';
 import { openWorkspacePr } from '../../state/worktree-service.ts';
+import { expandGitmojiShortcodes } from '../../lib/gitmoji-shortcodes.mjs';
 import { commitUrl, githubIssueWebUrl, pullRequestUrl } from '../../lib/git-remote-url.ts';
 import { executeTool } from '../../tools/client.ts';
 import type { IssueCard, IssueGitLink } from '../../types.ts';
@@ -291,7 +292,10 @@ export async function openIssueCommitInGitUi(sha: string, subject?: string): Pro
   const { openGitSidePanel } = await import('../../ui/git-panel.ts');
   await openGitSidePanel();
   const { openGitCommitDiffPanel } = await import('../../ui/git-commit-diff-panel.ts');
-  await openGitCommitDiffPanel({ sha, subject });
+  await openGitCommitDiffPanel({
+    sha,
+    subject: subject ? expandGitmojiShortcodes(subject) : subject,
+  });
 }
 
 /** Open a URL via Electron shell or browser tab (same pattern as git-graph context menu). */

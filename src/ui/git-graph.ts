@@ -1,3 +1,4 @@
+import { expandGitmojiShortcodes } from '../lib/gitmoji-shortcodes.mjs';
 import { gitLog, type GitCommitEntry } from '../state/git-api';
 
 const LOG_COUNT = 200;
@@ -630,7 +631,9 @@ function renderRow(visual: CommitVisual, step: number, ctx: RowContext): HTMLEle
     row.classList.add('git-graph__row--selected');
   }
   row.dataset.sha = visual.commit.hash;
-  row.title = `${visual.commit.subject} (${visual.branchKey})`;
+  // Shortcodes in the stored subject stay in git; the row shows the glyph.
+  const subjectText = expandGitmojiShortcodes(visual.commit.subject);
+  row.title = `${subjectText} (${visual.branchKey})`;
 
   const onSelect = ctx.onSelect;
   if (onSelect) {
@@ -682,7 +685,7 @@ function renderRow(visual: CommitVisual, step: number, ctx: RowContext): HTMLEle
 
   const subject = document.createElement('span');
   subject.className = 'git-graph__subject';
-  subject.textContent = visual.commit.subject;
+  subject.textContent = subjectText;
 
   const meta = document.createElement('div');
   meta.className = 'git-graph__meta';

@@ -93,7 +93,7 @@ On Windows, **Git Bash** appears when Git for Windows is installed, and installe
 
 The source-control panel does status, stage, diff, commit, branch, pull and push. If the folder is not a git repository yet, **Set up git** starts a background chat that initializes it (init, `.gitignore`, first commit) without leaving the panel.
 
-- **Commit messages** can be generated from the staged diff: conventional commits with optional gitmoji, an imperative subject, and a body explaining why. The `/git-commit` skill uses the same conventions.
+- **Commit messages** can be generated from the staged diff: conventional commits with optional gitmoji, an imperative subject, and a body explaining why. The `/git-commit` skill uses the same conventions. History shows gitmoji as emoji even when a commit stored a colon code such as `:sparkles:`.
 - **Commit and file diffs** open as a side-by-side review in the workspace. Long lines **wrap by default**; use the **Wrap** control in the review header to turn wrapping off when you want a single-line scroll.
 - **Merge to main** appears when you are on a feature branch: it checks out the trunk in the main workspace, merges your branch, and switches you back — warning you first if the tree is dirty and surfacing merge failures with an option to send them to chat.
 - Names you type when creating a **branch** or **worktree** (composer, Source Control, or the git panel) are turned into a git-safe slug: `Test Worktree` becomes `test-worktree`. Empty or illegal characters are stripped; the dialog shows the name that will be used.

@@ -10,6 +10,7 @@ import {
   gitRefFolderName,
   slugifyGitRefName,
 } from '../../src/lib/git-branch-slug.mjs';
+import { expandGitmojiShortcodes } from '../../src/lib/gitmoji-shortcodes.mjs';
 import { getEffectiveWorkspaceRoot } from '../runtime/path-access.js';
 
 const GIT_TIMEOUT_MS = 120_000;
@@ -453,7 +454,9 @@ export async function commit({ cwd, message } = {}) {
     }
   }
 
-  const result = await git(['commit', '-m', message], repo.cwd);
+  const normalized = expandGitmojiShortcodes(message);
+
+  const result = await git(['commit', '-m', normalized], repo.cwd);
   if (result.code !== 0) {
     return { ok: false, error: processError(result) };
   }

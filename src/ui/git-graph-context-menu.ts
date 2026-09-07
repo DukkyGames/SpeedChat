@@ -4,6 +4,7 @@ import { appAlert, appConfirm, appPrompt } from './app-dialog';
  */
 
 import { commitUrl } from '../lib/git-remote-url';
+import { expandGitmojiShortcodes } from '../lib/gitmoji-shortcodes.mjs';
 import { isProtectedBranchName } from '../lib/git-trunk-branch';
 import { filterUserFacingBranches } from '../lib/worktree-list-parse';
 import {
@@ -443,7 +444,7 @@ async function buildMenuItems(
     ...legacyCaptureMenuItems({
       kind: CAPTURE_MENU_KINDS.commit,
       hash: sha,
-      subject: commit.subject,
+      subject: expandGitmojiShortcodes(commit.subject),
     }).map((row) => ({ kind: 'item' as const, label: row.label, action: row.action })),
     { kind: 'sep' },
     {
@@ -459,7 +460,7 @@ async function buildMenuItems(
       kind: 'item',
       label: 'Copy Commit Message',
       action: () => {
-        void navigator.clipboard.writeText(commit.subject).then(() => {
+        void navigator.clipboard.writeText(expandGitmojiShortcodes(commit.subject)).then(() => {
           showToast('Copied commit message', 'success');
         });
       },

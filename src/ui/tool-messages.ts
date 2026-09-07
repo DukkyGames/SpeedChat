@@ -1,3 +1,4 @@
+import { expandGitmojiShortcodes } from '../lib/gitmoji-shortcodes.mjs';
 import { withSessionToken } from '../api/session-token.ts';
 import type { CodeChangeDiffLine, CodeChangeStats, ToolImageAttachment } from '../types';
 import { BUILT_IN_TOOLS } from '../tools/definitions';
@@ -376,7 +377,7 @@ function mountFriendlyBodyElement(body: FriendlyToolBody): HTMLElement {
       sha.textContent = row.sha.slice(0, 7);
       const subject = document.createElement('span');
       subject.className = 'tool-call-entry__name';
-      subject.textContent = row.subject;
+      subject.textContent = expandGitmojiShortcodes(row.subject);
       li.appendChild(sha);
       li.appendChild(subject);
       list.appendChild(li);

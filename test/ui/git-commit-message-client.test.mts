@@ -75,6 +75,8 @@ describe('buildGitCommitMessagePrompt', () => {
     const user = String(messages[1].content);
     assert.match(system, /WHY the change was made/);
     assert.match(system, /gitmoji/);
+    assert.match(system, /Unicode gitmoji/);
+    assert.match(system, /✨ feat/);
     assert.match(user, /staged changes only/);
     assert.match(user, /src\/a\.ts/);
     assert.match(user, /src\/b\.ts/);
@@ -150,6 +152,13 @@ describe('sanitizeCommitMessage', () => {
     const raw = '✨ feat(ui): add commit generator';
     assert.equal(sanitizeCommitMessage(raw), raw);
   });
+
+  test('expands gitmoji shortcodes into Unicode', () => {
+    assert.equal(
+      sanitizeCommitMessage(':sparkles: feat(skills): generate index'),
+      '✨ feat(skills): generate index',
+    );
+  });
 });
 
 // ── stripThinkingFromCommitOutput ────────────────────────────────────────────
@@ -196,6 +205,13 @@ describe('extractCommitMessageFromChain', () => {
     const result = extractCommitMessageFromChain(chain);
     assert.match(result, /^✨ feat\(git\):/);
     assert.match(result, /Body explains why/);
+  });
+
+  test('expands gitmoji shortcodes on conventional subjects', () => {
+    assert.equal(
+      extractCommitMessageFromChain(':sparkles: feat(git): add shortcode expansion'),
+      '✨ feat(git): add shortcode expansion',
+    );
   });
 
   test('extracts plain commit text from trailing paragraph', () => {

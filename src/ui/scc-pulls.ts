@@ -12,6 +12,7 @@ import {
   type PullRequestSummary,
 } from '../state/forge-api';
 import { gitBranches } from '../state/git-api';
+import { expandGitmojiShortcodes } from '../lib/gitmoji-shortcodes.mjs';
 import { resolveTrunkBranchName } from '../lib/git-trunk-branch';
 import { getPrReview, subscribePrReviews } from '../state/pr-review-store';
 import { matchPrForBranch, prReviewKey } from '../chat/review/pr-review-target';
@@ -382,7 +383,10 @@ export function createPullsView(
       const commits = el('div', 'scc-prdetail__commits');
       for (const commit of pr.commits) {
         const row = el('div', 'scc-prcommit');
-        row.append(chip(commit.sha, 'sha'), el('span', 'scc-prcommit__subject', commit.subject));
+        row.append(
+          chip(commit.sha, 'sha'),
+          el('span', 'scc-prcommit__subject', expandGitmojiShortcodes(commit.subject)),
+        );
         if (commit.author) row.appendChild(el('span', 'scc-prcommit__author', commit.author));
         commits.appendChild(row);
       }

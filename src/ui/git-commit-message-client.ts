@@ -16,6 +16,7 @@ import {
   type GitCommitMessageConfig,
 } from '../config/git-commit-message-meta';
 import { encodeModelSelectKey } from '../lib/model-select-key';
+import { expandGitmojiShortcodes } from '../lib/gitmoji-shortcodes.mjs';
 import { catalogCapabilitiesFromRow } from '../providers/model-capabilities';
 import { resolveProvider } from '../providers/store';
 import type { ApiMessage, ChatCompletionChunk } from '../types';
@@ -108,8 +109,9 @@ function buildCommitMessageSystemPrompt(useGitmoji: boolean): string {
   if (useGitmoji) {
     lines.push(
       '',
-      'Prefix the subject with one gitmoji:',
+      'Prefix the subject with one Unicode gitmoji character — never colon shortcodes such as :sparkles: or :bug:.',
       '✨ feat, 🐛 fix, 📝 docs, 💄 style, ♻️ refactor, ✅ test, 🔧 chore, ⚡ perf, 👷 build, 🎨 ui',
+      'Example: ✨ feat(git): add AI commit message generator',
     );
   }
 
@@ -329,7 +331,7 @@ function rejectDiffAnalysis(candidate: string): string {
 }
 
 function isHighConfidenceCommitMessage(text: string): boolean {
-  const firstLine = text.split('\n')[0]?.trim() ?? '';
+  const firstLine = expandGitmojiShortcodes(text.split('\n')[0]?.trim() ?? '');
   return CONVENTIONAL_COMMIT_LINE_RE.test(firstLine);
 }
 
@@ -376,7 +378,7 @@ export function extractCommitMessageFromChain(
   raw: string,
   options?: CommitMessageExtractOptions,
 ): string {
-  const stripped = stripThinkingFromCommitOutput(raw);
+  const stripped = expandGitmojiShortcodes(stripThinkingFromCommitOutput(raw));
   if (!stripped) return '';
 
   const highConfidence = extractHighConfidenceCommitMessage(stripped);
@@ -473,7 +475,8 @@ export function sanitizeCommitMessage(raw: string): string {
   }
 
   text = text.replace(/^(commit message|message):\s*/i, '');
-  return text.trim();
+  // Models often emit :sparkles:; store the glyph so history and GitHub render it.
+  return expandGitmojiShortcodes(text.trim());
 }
 
 // ── Fetch ────────────────────────────────────────────────────────────────────

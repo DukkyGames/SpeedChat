@@ -162,17 +162,19 @@ Stage relevant files, then commit with a gitmoji prefix:
 
 | Change type | Gitmoji |
 |-------------|---------|
-| Bug fix for CI | `:bug:` |
-| Test fix | `:white_check_mark:` |
-| Type fix | `:lipstick:` or `:adhesive_bandage:` |
-| Config/CI-adjacent code fix | `:wrench:` |
+| Bug fix for CI | 🐛 |
+| Test fix | ✅ |
+| Type fix | 💄 or 🩹 |
+| Config/CI-adjacent code fix | 🔧 |
+
+Use the Unicode emoji, never a colon shortcode such as `:bug:`.
 
 Example:
 
 ```bash
 git add <files>
 git commit -m "$(cat <<'EOF'
-:bug: Fix CI failure in memory save tool test
+🐛 Fix CI failure in memory save tool test
 
 Align fixture path with workspace root resolution on Windows.
 EOF

@@ -23,6 +23,7 @@ import {
   type ParsedWorktree,
   worktreePathsEqual,
 } from '../lib/worktree-list-parse';
+import { expandGitmojiShortcodes } from '../lib/gitmoji-shortcodes.mjs';
 import { isProtectedBranchName, resolveTrunkBranchName } from '../lib/git-trunk-branch';
 import { panelPathsEqual } from './panel-worktree-cwd';
 import { confirmDirtyCheckout } from './git-checkout-confirm';
@@ -442,7 +443,7 @@ export function createStashesView(ctx: SccContext): SccView {
 
       frag.appendChild(
         refRow({
-          name: subject || ref,
+          name: expandGitmojiShortcodes(subject) || ref,
           meta,
           actions: [
             button({
@@ -463,7 +464,7 @@ export function createStashesView(ctx: SccContext): SccView {
               title: 'Drop this stash',
               variant: 'ghost',
               className: 'scc-btn--danger-hover',
-              onClick: () => void drop(index, subject || ref),
+              onClick: () => void drop(index, expandGitmojiShortcodes(subject) || ref),
             }),
           ],
         }),

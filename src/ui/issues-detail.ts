@@ -1,3 +1,4 @@
+import { expandGitmojiShortcodes } from '../lib/gitmoji-shortcodes.mjs';
 import { setAssistantBubbleContent } from '../markdown/renderer';
 import {
   appendIssueLinks,
@@ -1228,10 +1229,10 @@ function buildGitSection(issue: IssueCard): HTMLElement {
       shaSpan.textContent = c.sha.slice(0, 7);
       const subSpan = document.createElement('span');
       subSpan.className = 'issues-detail__git-subject';
-      subSpan.textContent = c.subject;
+      subSpan.textContent = expandGitmojiShortcodes(c.subject);
       btn.append(shaSpan, subSpan);
       btn.addEventListener('click', () => {
-        void openIssueCommitInGitUi(c.sha, c.subject);
+        void openIssueCommitInGitUi(c.sha, expandGitmojiShortcodes(c.subject));
       });
       li.appendChild(btn);
       ul.appendChild(li);

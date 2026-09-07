@@ -4,6 +4,7 @@ import { runProcess } from '../process-runner.js';
 import { parseGitNumstat } from '../tools/git-change-stats.js';
 import { invalidateRegisteredWorktreeCache } from './allowlist.js';
 import { slugifyGitRefName } from '../../src/lib/git-branch-slug.mjs';
+import { expandGitmojiShortcodes } from '../../src/lib/gitmoji-shortcodes.mjs';
 import { refreshDependencies } from './dep-install.js';
 import { ensureDependencyDirs, hasBrokenDepDir } from './dep-symlinks.js';
 import {
@@ -448,7 +449,7 @@ export async function commitWorktree({ boardId, slotId, message }) {
   if (staged.code === 0) {
     return { ok: true, committed: false };
   }
-  const commitMsg = (message && message.trim()) || 'Board task commit';
+  const commitMsg = expandGitmojiShortcodes((message && message.trim()) || 'Board task commit');
   const commit = await git(['commit', '-m', commitMsg], wtPath);
   if (!ok(commit)) return { ok: false, output: out(commit) };
   return { ok: true, committed: true, output: out(commit) };

@@ -48,6 +48,22 @@ const ORCH_DIR = path.join(PROJECT_ROOT, 'server', 'orchestrator');
 const BOARD_ID = 'p3a-lifecycle';
 
 /**
+ * @param {string} wtPath
+ * @returns {Promise<boolean>}
+ */
+async function pathIsGitWorktree(wtPath) {
+  try {
+    const { stdout } = await execFileAsync('git', ['rev-parse', '--is-inside-work-tree'], {
+      cwd: wtPath,
+      windowsHide: true,
+    });
+    return stdout.trim() === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
  * @param {string} id
  */
 function taskSpec(id) {
@@ -581,6 +597,54 @@ describe('P3-A worktree lifecycle', { concurrency: false }, () => {
     const wtNm = path.join(second.path, 'node_modules');
     assert.equal(await inspectDepDir(wtNm), 'link-ok');
     assert.equal(await fs.readFile(path.join(wtNm, 'pkg.txt'), 'utf8'), 'installed\n');
+  });
+
+  test('a husk slot dir with no .git is reclaimed, not reused as a worktree', async () => {
+    const boardId = 'p3a-husk';
+    resetEnsuredBoards();
+    const state = boardState(['HuskA']);
+    const desired = {
+      taskId: 'HuskA',
+      role: 'builder',
+      seedKind: 'initial',
+      sameWorktree: false,
+    };
+
+    const first = await allocateAttemptWorktree({
+      boardId,
+      taskId: 'HuskA',
+      attemptId: 'r-husk-1',
+      desired,
+      state,
+    });
+    assert.equal(first.ok, true, first.error);
+
+    // Reproduce a release whose `fs.rm` failed: `git worktree remove` + `prune`
+    // already dropped `.git` and the registration, but the dir survived.
+    await execFileAsync('git', ['worktree', 'remove', '--force', first.path], {
+      cwd: repoDir,
+      windowsHide: true,
+    });
+    await execFileAsync('git', ['worktree', 'prune', '--expire', 'now'], {
+      cwd: repoDir,
+      windowsHide: true,
+    });
+    await fs.mkdir(first.path, { recursive: true });
+    await fs.writeFile(path.join(first.path, 'leftover.txt'), 'stale\n', 'utf8');
+    assert.equal(await pathIsGitWorktree(first.path), false);
+
+    const second = await allocateAttemptWorktree({
+      boardId,
+      taskId: 'HuskA',
+      attemptId: 'r-husk-2',
+      desired,
+      state,
+    });
+    assert.equal(second.ok, true, second.error);
+    assert.equal(second.path, first.path);
+    // Reused-as-is would leave no .git and fail every later git call with
+    // "fatal: not a git repository", bricking the slot on every retry.
+    assert.equal(await pathIsGitWorktree(second.path), true);
   });
 
   test('slotIdFromWorktreePath round-trips through getWorktreeSlotPath', () => {

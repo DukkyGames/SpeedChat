@@ -474,6 +474,15 @@ export async function releaseWorktree(input) {
     };
   }
   const removed = await removeWorktree({ boardId, slotId });
+  if (!removed.ok) {
+    // A husk left here poisons the slot: `git worktree remove` already dropped
+    // `.git` and the registration, so the next allocate would reuse a non-repo.
+    // Callers only read `.discarded`, so say it out loud.
+    console.warn(
+      `[orchestrator] ${boardId}: releaseWorktree left slot ${slotId} behind:`,
+      removed.error || 'unknown',
+    );
+  }
   return { ok: Boolean(removed.ok), discarded, error: removed.error };
 }
 

@@ -58,6 +58,80 @@ async function pathExists(targetPath) {
   }
 }
 
+/**
+ * Is `wtPath` a live git worktree checkout, or just a directory that happens to exist?
+ *
+ * A released slot can survive as a non-repo husk: `removeWorktree` runs
+ * `git worktree remove --force` + `prune` (which drop `.git` and the
+ * registration) before `fs.rm`, so if the rm fails — a lingering child process
+ * holds the dir as its cwd, a dep junction is busy — the path is left behind
+ * with no `.git`. Treating that as a reusable worktree runs every later git
+ * command in a non-repo, which fails as
+ * `fatal: not a git repository (or any of the parent directories): .git`
+ * on every retry forever.
+ *
+ * @param {string} wtPath
+ * @returns {Promise<boolean>}
+ */
+async function isWorktreeCheckout(wtPath) {
+  if (!(await pathExists(path.join(wtPath, '.git')))) return false;
+  const r = await git(['rev-parse', '--is-inside-work-tree'], wtPath);
+  return ok(r) && (r.stdout ?? '').trim() === 'true';
+}
+
+/**
+ * Empty a husk slot so `git worktree add` can claim the path again.
+ *
+ * `git worktree add` accepts an existing *empty* directory, so an undeletable
+ * (but emptied) husk still recovers — deleting the leaf dir itself can be
+ * impossible on Windows while any process holds it as its cwd.
+ *
+ * @param {string} wtPath
+ * @returns {Promise<{ ok: boolean, output?: string }>}
+ */
+async function reclaimStaleWorktreeDir(wtPath) {
+  if (!isPathUnderWorktreesRoot(wtPath)) {
+    return { ok: false, output: 'refusing to reclaim a path outside the worktrees root' };
+  }
+  // Drop any stale registration still pointing here before reusing the path.
+  await git(['worktree', 'prune', '--expire', 'now']);
+  /** @type {string[]} */
+  let entries = [];
+  try {
+    entries = await fs.readdir(wtPath);
+  } catch {
+    return { ok: true };
+  }
+  for (const entry of entries) {
+    // Junction/symlink dep dirs must be unlinked, never recursed into: the
+    // targets are the real workspace node_modules.
+    try {
+      await fs.rm(path.join(wtPath, entry), {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 100,
+      });
+    } catch {
+    }
+  }
+  // The dir itself may be pinned by another process' cwd; empty is good enough.
+  try {
+    await fs.rmdir(wtPath);
+  } catch {
+  }
+  let remaining = [];
+  try {
+    remaining = await fs.readdir(wtPath);
+  } catch {
+    return { ok: true };
+  }
+  if (remaining.length > 0) {
+    return { ok: false, output: `stale worktree dir not empty: ${remaining.join(', ')}` };
+  }
+  return { ok: true };
+}
+
 async function branchExists(branch) {
   const r = await git(['rev-parse', '--verify', '--quiet', branch]);
   return r.code === 0;
@@ -230,11 +304,22 @@ export async function createWorktree({ boardId, slotId, branch, baseRef }) {
   const base = (baseRef && baseRef.trim()) || 'HEAD';
   const intPath = getWorktreeSlotPath(boardId, 'integration');
 
-  let exists = false;
-  try {
-    await fs.access(wtPath);
-    exists = true;
-  } catch {
+  let exists = await pathExists(wtPath);
+
+  if (exists && !(await isWorktreeCheckout(wtPath))) {
+    // Husk from a release whose `fs.rm` failed. Reclaim the path instead of
+    // reusing it, or every later git call runs in a non-repo.
+    const reclaimed = await reclaimStaleWorktreeDir(wtPath);
+    if (!reclaimed.ok) {
+      return {
+        ok: false,
+        error: 'stale worktree directory',
+        path: wtPath,
+        branch,
+        output: reclaimed.output,
+      };
+    }
+    exists = false;
   }
 
   if (exists) {

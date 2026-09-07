@@ -33,6 +33,7 @@ import {
   anthropicThinkingTypeFromProviderOptions,
   normalizeAnthropicProviderOptions,
 } from '../../../src/lib/anthropic-thinking-style.mjs';
+import { openCodeSessionIdForGeneration } from '../../providers/opencode-identity.js';
 
 export { deriveAnthropicBaseUrl };
 
@@ -314,7 +315,10 @@ export async function pumpAnthropicUpstream({
       ),
     );
 
-    const anthropic = buildAnthropicProvider(runtime);
+    const anthropic = buildAnthropicProvider({
+      ...runtime,
+      openCodeSessionId: openCodeSessionIdForGeneration(state),
+    });
     const callOptions = buildGenerationCallOptions(adjustedBody, anthropic, controller.signal);
     const stream = body.stream === true;
 

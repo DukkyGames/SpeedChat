@@ -35,6 +35,10 @@ import { deriveMessagesPathFromChat } from '../../src/lib/derive-messages-path.m
 import { resolveModelApi } from './resolve-model-api.js';
 import { formatUpstreamHttpErrorMessage } from './upstream-error-detail.js';
 import { upstreamFetch } from './upstream-fetch.js';
+import {
+  mergeOpenCodeIdentityHeaders,
+  openCodeSessionIdForGeneration,
+} from '../providers/opencode-identity.js';
 
 // ── Dump ─────────────────────────────────────────────────────────────────────
 
@@ -394,11 +398,14 @@ async function attemptCandidateStream({
 
     const upstream = await upstreamFetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream, application/json',
-        ...headers,
-      },
+      headers: mergeOpenCodeIdentityHeaders(
+        {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream, application/json',
+          ...headers,
+        },
+        { baseUrl: url, sessionId: openCodeSessionIdForGeneration(state) },
+      ),
       body: requestBody,
       signal: controller.signal,
     });

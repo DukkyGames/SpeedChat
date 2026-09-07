@@ -11,6 +11,10 @@ import {
   isOpenCodeProviderBaseUrl,
 } from './models-dev-context.js';
 import { normalizeOpenCodeZenRelativePath } from './opencode-zen.js';
+import {
+  mergeOpenCodeIdentityHeaders,
+  OPENCODE_SESSION_CATALOG,
+} from './opencode-identity.js';
 import { validateProviderId } from './validate.js';
 import { resolveModelApi } from '../generations/resolve-model-api.js';
 import { NON_AGENT_FALLBACK_ROLES } from '../generations/store.js';
@@ -80,10 +84,13 @@ export async function proxyModels(id) {
   try {
     const res = await fetch(url, {
       method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        ...headers,
-      },
+      headers: mergeOpenCodeIdentityHeaders(
+        {
+          Accept: 'application/json',
+          ...headers,
+        },
+        { baseUrl: profile.baseUrl, sessionId: OPENCODE_SESSION_CATALOG },
+      ),
       signal: controller.signal,
     });
     if (!res.ok) {

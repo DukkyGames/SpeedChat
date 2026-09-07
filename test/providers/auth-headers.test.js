@@ -77,4 +77,22 @@ describe('buildAuthHeaders', () => {
     });
     assert.deepEqual(actual, expected);
   });
+
+  it('stamps Minnow User-Agent on OpenCode hosts (not generic undici/SDK names)', () => {
+    const actual = buildAuthHeaders(
+      { baseUrl: 'https://opencode.ai/zen/go' },
+      { apiKey: 'sk-go-fixed', bearerToken: '', headerOverrides: { 'User-Agent': 'node-fetch/1.0' } },
+    );
+    assert.equal(actual.Authorization, 'Bearer sk-go-fixed');
+    assert.match(actual['User-Agent'], /^Minnow\/\d+\.\d+\.\d+/);
+    assert.equal(actual['x-opencode-session'], undefined);
+  });
+
+  it('does not stamp OpenCode identity on other providers', () => {
+    const actual = buildAuthHeaders(
+      { baseUrl: 'https://api.openai.com' },
+      { apiKey: 'sk-fixed-key', bearerToken: '', headerOverrides: {} },
+    );
+    assert.deepEqual(actual, { Authorization: 'Bearer sk-fixed-key' });
+  });
 });

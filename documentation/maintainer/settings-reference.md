@@ -150,7 +150,7 @@ Catalog: [`src/providers/presets.ts`](../../src/providers/presets.ts). Presets a
 
 | Preset | Base URL | API kind | Auth | Notes |
 |--------|----------|----------|------|-------|
-| OpenCode Go | `https://opencode.ai/zen/go` | OpenAI v1 | Bearer | Gateway auto-API for mixed catalogs |
+| OpenCode Go | `https://opencode.ai/zen/go` | OpenAI v1 | Bearer | Gateway auto-API; Minnow User-Agent + `x-opencode-session` (chat id) |
 | OpenCode Zen | `https://opencode.ai/zen` | OpenAI v1 | Bearer | Gateway auto-API |
 | Anthropic | `https://api.anthropic.com` | Anthropic Messages | X-Api-Key | |
 | DeepSeek | `https://api.deepseek.com` | OpenAI v1 | Bearer | |

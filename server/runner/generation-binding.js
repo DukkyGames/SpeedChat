@@ -119,7 +119,7 @@ function iterateLocalSse(state) {
 /**
  * @param {string} providerId
  * @param {unknown} body
- * @param {{ signal?: AbortSignal, fallbackRole?: string | null }} [options]
+ * @param {{ signal?: AbortSignal, fallbackRole?: string | null, chatId?: string | null }} [options]
  * @returns {Promise<{ state: import('../generations/store.js').GenerationState, stream: AsyncIterable<string> }>}
  */
 async function startInProcessCompletion(providerId, body, options = {}) {
@@ -148,6 +148,7 @@ async function startInProcessCompletion(providerId, body, options = {}) {
     persist: false,
     candidates,
     fallbackRole,
+    chatId: typeof options.chatId === 'string' ? options.chatId : null,
   });
 
   const signal = options.signal;
@@ -168,7 +169,7 @@ async function startInProcessCompletion(providerId, body, options = {}) {
 /**
  * @param {string} providerId
  * @param {unknown} body
- * @param {{ signal?: AbortSignal, fallbackRole?: string | null }} [options]
+ * @param {{ signal?: AbortSignal, fallbackRole?: string | null, chatId?: string | null }} [options]
  * @returns {Promise<AsyncIterable<string> & { generationId: string }>}
  */
 export async function createCompletionStream(providerId, body, options = {}) {
@@ -188,6 +189,7 @@ export async function postChatCompletionsInProcess(provider, body, signal, optio
   const started = await startInProcessCompletion(providerId, body, {
     signal,
     fallbackRole: options?.fallbackRole,
+    chatId: options?.chatId,
   });
 
   const encoder = new TextEncoder();

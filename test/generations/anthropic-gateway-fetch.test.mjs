@@ -199,16 +199,26 @@ describe('createAnthropicGatewayFetch', () => {
       return new Response('ok');
     };
 
-    const wrapped = createAnthropicGatewayFetch('https://opencode.ai', fetchImpl);
+    const wrapped = createAnthropicGatewayFetch('https://opencode.ai', fetchImpl, {
+      sessionId: '11111111-1111-1111-1111-111111111111',
+    });
     await wrapped('https://opencode.ai/zen/v1/messages', {
       method: 'POST',
-      headers: { 'anthropic-beta': 'structured-outputs-2025-11-13' },
+      headers: { 'anthropic-beta': 'structured-outputs-2025-11-13', 'User-Agent': 'ai-sdk/anthropic' },
       body: JSON.stringify({ thinking: { type: 'disabled' } }),
     });
 
     assert.equal(
       /** @type {Record<string, string>} */ (seenInit?.headers)['anthropic-beta'],
       undefined,
+    );
+    assert.equal(
+      /** @type {Record<string, string>} */ (seenInit?.headers)['User-Agent'],
+      'Minnow/0.1.1',
+    );
+    assert.equal(
+      /** @type {Record<string, string>} */ (seenInit?.headers)['x-opencode-session'],
+      '11111111-1111-1111-1111-111111111111',
     );
     const body = JSON.parse(String(seenInit?.body));
     assert.equal(body.thinking, undefined);

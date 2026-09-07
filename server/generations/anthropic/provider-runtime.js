@@ -11,6 +11,7 @@ import {
   sanitizeAnthropicGatewayRequestBody,
   stripAnthropicGatewayBetasFromSet,
 } from './gateway-fetch.js';
+import { mergeOpenCodeIdentityHeaders } from '../../providers/opencode-identity.js';
 
 /**
  * Derive the Anthropic SDK baseURL from provider origin + messages path directory.
@@ -126,7 +127,7 @@ function wrapAnthropicGatewayProvider(baseProvider) {
 }
 
 /**
- * @param {{ profile: object, paths: object, secrets: object }} runtime
+ * @param {{ profile: object, paths: object, secrets: object, openCodeSessionId?: string }} runtime
  * @returns {import('@ai-sdk/anthropic').AnthropicProvider}
  */
 export function buildAnthropicProvider(runtime) {
@@ -135,13 +136,18 @@ export function buildAnthropicProvider(runtime) {
     paths?.messagesPath || deriveMessagesPathFromChat(paths?.chatCompletionsPath);
   const baseURL = deriveAnthropicBaseUrl(profile.baseUrl, messagesPath);
   const auth = buildAuthOptions(profile, secrets);
-  const headers = buildCustomHeaders(profile, secrets);
+  const headers = mergeOpenCodeIdentityHeaders(buildCustomHeaders(profile, secrets), {
+    baseUrl: profile.baseUrl,
+    sessionId: runtime.openCodeSessionId,
+  });
   const isGateway = isAnthropicGatewayBaseUrl(profile.baseUrl);
 
   const baseProvider = createAnthropic({
     baseURL,
     ...auth,
-    fetch: createAnthropicGatewayFetch(profile.baseUrl),
+    fetch: createAnthropicGatewayFetch(profile.baseUrl, globalThis.fetch, {
+      sessionId: runtime.openCodeSessionId,
+    }),
     ...(Object.keys(headers).length > 0 ? { headers } : {}),
   });
 

@@ -254,8 +254,11 @@ function createSubAgentRunner(deps) {
     } else {
       signal.addEventListener("abort", () => turnAbort.abort(), { once: true });
     }
+    const sessionChatId =
+      typeof streamOptions?.chatId === "string" ? streamOptions.chatId.trim() : "";
     const res = await postChatCompletions(provider, sanitized, turnAbort.signal, {
-      fallbackRole
+      fallbackRole,
+      ...(sessionChatId ? { chatId: sessionChatId } : {})
     });
     if (!res.ok) {
       const err = await res.text();
@@ -832,7 +835,7 @@ function createSubAgentRunner(deps) {
               input.type,
               void 0,
               { provider, modelCapabilities: sendCaps },
-              { onTurnEvent: emitTurnEvent }
+              { onTurnEvent: emitTurnEvent, chatId: input.parentChatId || input.runId }
             );
           } catch (streamErr) {
             if (usedOutcomeResponseFormat && isResponseFormatRejectionError(streamErr)) {
@@ -844,7 +847,7 @@ function createSubAgentRunner(deps) {
                 input.type,
                 void 0,
                 { provider, modelCapabilities: sendCaps },
-                { onTurnEvent: emitTurnEvent }
+                { onTurnEvent: emitTurnEvent, chatId: input.parentChatId || input.runId }
               );
             }
             throw streamErr;
@@ -1014,7 +1017,8 @@ function createSubAgentRunner(deps) {
           {
             ...streamOpts,
             ...streamProgress,
-            onTurnEvent: emitTurnEvent
+            onTurnEvent: emitTurnEvent,
+            chatId: input.parentChatId || input.runId
           }
         );
         const runSubTurnWithThinkingBudget = async () => {

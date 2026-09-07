@@ -2,6 +2,8 @@
  * Build outbound HTTP headers for provider upstream requests (proxy mode).
  */
 
+import { mergeOpenCodeIdentityHeaders } from './opencode-identity.js';
+
 /**
  * @param {object} profile
  * @param {object} secrets
@@ -43,7 +45,8 @@ export function buildAuthHeaders(profile, secrets) {
     }
   }
 
-  return headers;
+  // OpenCode Go rejects generic SDK/undici User-Agents; stamp Minnow last.
+  return mergeOpenCodeIdentityHeaders(headers, { baseUrl: profile?.baseUrl });
 }
 
 /**

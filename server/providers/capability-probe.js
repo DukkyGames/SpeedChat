@@ -13,6 +13,10 @@ import { resolveModelApi } from '../generations/resolve-model-api.js';
 import { openAiMessagesToCoreMessages } from '../generations/anthropic/openai-to-core-messages.js';
 import { mapOpenAiToolChoice, mapOpenAiTools } from '../generations/anthropic/openai-tools.js';
 import { resolveOpenCodeZenUpstreamUrl } from './opencode-zen.js';
+import {
+  mergeOpenCodeIdentityHeaders,
+  OPENCODE_SESSION_PROBE,
+} from './opencode-identity.js';
 import { sanitizeCompletionBodyForProvider } from './sanitize-completion-body.js';
 import { isLocalProviderBaseUrl } from './provider-host.js';
 import {
@@ -274,11 +278,14 @@ async function postChatCompletion(url, headers, body, timeoutMs, signal) {
   try {
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        ...headers,
-      },
+      headers: mergeOpenCodeIdentityHeaders(
+        {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...headers,
+        },
+        { baseUrl: url, sessionId: OPENCODE_SESSION_PROBE },
+      ),
       body: JSON.stringify(body),
       signal: controller.signal,
     });

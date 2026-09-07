@@ -7,6 +7,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { isAnthropicGatewayBaseUrl } from '../../../src/lib/anthropic-thinking-style.mjs';
+import { mergeOpenCodeIdentityHeaders } from '../../providers/opencode-identity.js';
 
 /**
  * Temporary diagnostic dump of the sanitized outbound body + upstream error body
@@ -223,15 +224,27 @@ export function sanitizeAnthropicGatewayRequestInit(init) {
 /**
  * @param {string | undefined | null} baseUrl
  * @param {typeof fetch} [fetchImpl]
+ * @param {{ sessionId?: string | null }} [options]
  * @returns {typeof fetch}
  */
-export function createAnthropicGatewayFetch(baseUrl, fetchImpl = globalThis.fetch) {
+export function createAnthropicGatewayFetch(
+  baseUrl,
+  fetchImpl = globalThis.fetch,
+  options = {},
+) {
   if (!isAnthropicGatewayBaseUrl(baseUrl)) {
     return fetchImpl;
   }
 
   return async (input, init) => {
     const sanitized = sanitizeAnthropicGatewayRequestInit(init);
+    if (sanitized) {
+      // Last writer: overwrite ai-sdk/anthropic User-Agent on OpenCode hosts.
+      sanitized.headers = mergeOpenCodeIdentityHeaders(
+        /** @type {Record<string, string>} */ (sanitized.headers),
+        { baseUrl, sessionId: options.sessionId },
+      );
+    }
     const res = await fetchImpl(input, sanitized);
     if (!res.ok) {
       const cloned = res.clone();

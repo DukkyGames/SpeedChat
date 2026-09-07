@@ -43,7 +43,6 @@ export interface SkillsLibraryIndexSkill {
 export interface SkillsLibraryPackIndex {
   packId: string;
   commit: string;
-  generatedAt: string;
   skills: SkillsLibraryIndexSkill[];
 }
 

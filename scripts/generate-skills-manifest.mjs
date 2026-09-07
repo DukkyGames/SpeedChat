@@ -61,7 +61,7 @@ async function main() {
 
   await fs.writeFile(
     OUT_FILE,
-    `${JSON.stringify({ generatedAt: new Date().toISOString(), skills }, null, 2)}\n`,
+    `${JSON.stringify({ skills }, null, 2)}\n`,
     'utf8',
   );
   console.log(`Wrote ${skills.length} skills to ${OUT_FILE}`);

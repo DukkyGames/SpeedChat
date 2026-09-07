@@ -1,3 +1,9 @@
 # Keep Landlock helper build scripts Unix-LF so WSL/`bash` can run them on Windows checkouts.
 native/minnow-sandbox/**/*.sh text eol=lf
 native/minnow-sandbox/**/*.c text eol=lf
+
+# Generated JSON — normalize to LF so the generators' output is byte-stable
+# across Windows checkouts (prevents phantom diffs after npm run build).
+server/product-wiki/catalog.json text eol=lf
+src/skills/builtin-manifest.json text eol=lf
+src/skills/library/index/*.json text eol=lf

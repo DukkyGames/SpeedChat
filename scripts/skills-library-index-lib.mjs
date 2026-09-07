@@ -87,7 +87,7 @@ export function parseSkillIndexEntry(raw, skillMdPath, options = {}) {
  * @param {string} packId
  * @param {string} commit
  * @param {Array<{ skillMdPath: string, raw: string, skillId?: string }>} skillFiles
- * @returns {{ packId: string, commit: string, generatedAt: string, skills: Array<{ skillId: string, label: string, description: string, subpath: string }> }}
+ * @returns {{ packId: string, commit: string, skills: Array<{ skillId: string, label: string, description: string, subpath: string }> }}
  */
 export function buildPackIndex(packId, commit, skillFiles) {
   const skills = skillFiles.map(({ skillMdPath, raw, skillId }) =>
@@ -97,7 +97,6 @@ export function buildPackIndex(packId, commit, skillFiles) {
   return {
     packId,
     commit,
-    generatedAt: new Date().toISOString(),
     skills,
   };
 }

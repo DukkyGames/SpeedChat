@@ -79,7 +79,8 @@ describe('Skills Library index builder', () => {
     assert.equal(index.skills.length, 2);
     assert.equal(index.skills[0].skillId, 'alpha');
     assert.equal(index.skills[1].skillId, 'zulu');
-    assert.ok(index.generatedAt);
+    // No generatedAt timestamp — rebuilds must be byte-identical (deterministic output).
+    assert.equal(index.generatedAt, undefined);
   });
 
   it('resolveMattPocockInstallId maps upstream paths to Minnow ids', () => {

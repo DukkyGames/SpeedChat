@@ -86,7 +86,7 @@ async function loadMattPocockInstallIds() {
 
 /**
  * @param {import('../src/skills/library/registry.ts').SkillsLibraryPack} pack
- * @returns {Promise<{ packId: string, commit: string, generatedAt: string, skills: Array<{ skillId: string, label: string, description: string, subpath: string }> }>}
+ * @returns {Promise<{ packId: string, commit: string, skills: Array<{ skillId: string, label: string, description: string, subpath: string }> }>}
  */
 async function generatePackIndex(pack) {
   const { repo, commit, skillsGlobs } = pack.source;

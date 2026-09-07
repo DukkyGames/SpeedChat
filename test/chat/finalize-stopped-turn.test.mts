@@ -11,7 +11,14 @@ import '../tools/install-dom-before-imports.mts';
 import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 import { Window } from 'happy-dom';
-import type { Chat, Message } from '../../src/types.ts';
+import type {
+  AssistantToolCallMessage,
+  Chat,
+  Message,
+  ToolResultMessage,
+} from '../../src/types.ts';
+import type { RunTurnOptions } from '../../server/runner/run-turn.d.ts';
+import type { TranscriptMessage } from '../../server/runner/transcript-store.d.ts';
 import {
   chatForSessionsWire,
   createEmptyChatObject,
@@ -78,6 +85,34 @@ function makeChat(): Chat {
 function roundTripHistory(chat: Chat): Message[] {
   const wire = chatForSessionsWire(chat);
   return JSON.parse(JSON.stringify(wire.history ?? [])) as Message[];
+}
+
+const TOOL_CALL_ROW: TranscriptMessage = {
+  role: 'assistant',
+  content: null,
+  tool_calls: [
+    {
+      id: 'call_1',
+      type: 'function',
+      function: { name: 'read_file', arguments: '{"path":"a.ts"}' },
+    },
+  ],
+} as TranscriptMessage;
+
+/** What the runner has already persisted when Stop lands mid tool batch. */
+function appendStoppedToolRound(options: RunTurnOptions): void {
+  options.transcript?.append(options.chatId, TOOL_CALL_ROW);
+  options.transcript?.append(options.chatId, {
+    role: 'tool',
+    tool_call_id: 'call_1',
+    content: 'export const a = 1;',
+  } as TranscriptMessage);
+}
+
+function toolCallRowOf(history: Message[]): AssistantToolCallMessage | undefined {
+  return history.find(
+    (m): m is AssistantToolCallMessage => m.role === 'assistant' && 'tool_calls' in m,
+  );
 }
 
 describe('stopped assistant affordance', () => {
@@ -202,6 +237,105 @@ describe('P10-E runChatTurn stopped persist (MIN-770)', () => {
     assert.equal(chat.history[0]?.role, 'user');
     const run = chat.runs?.find((r) => r.status === 'stopped');
     assert.equal(run?.status, 'stopped');
+  });
+
+  test('Stop mid tool batch flags the tool-call row instead of minting a partial', async () => {
+    setTitlesConfigForTests({ ...DEFAULT_TITLES_CONFIG, enabled: false });
+    installChatDom();
+    setRunTurnForTests(async (options) => {
+      appendStoppedToolRound(options);
+      return { outcome: 'crashed', error: 'aborted' };
+    });
+    const chat = makeChat();
+    setSessionStateForTests({
+      version: 3,
+      activeId: chat.id,
+      sidebarCollapsed: false,
+      chats: [chat],
+    });
+    const { runChatTurn } = await import('../../src/chat/run-turn-chat.ts');
+    await runChatTurn({ chat, ...SIMPLE_TURN });
+
+    assert.deepEqual(
+      chat.history.map((m) => m.role),
+      ['user', 'assistant', 'tool'],
+    );
+    assert.equal(toolCallRowOf(chat.history)?.stopped, true);
+    assert.equal(toolCallRowOf(roundTripHistory(chat))?.stopped, true);
+    assert.equal(
+      document.querySelector('.msg--stopped .msg-stopped-chip')?.textContent,
+      'Generation stopped',
+      'the live transcript shows the stop, not just the reload',
+    );
+  });
+
+  // The Stop above leaves a paired tool tail. Sending the next message used to slice
+  // history back to the last user row, so the model lost the entire stopped turn.
+  test('next user send keeps the stopped turn instead of wiping it', async () => {
+    setTitlesConfigForTests({ ...DEFAULT_TITLES_CONFIG, enabled: false });
+    installChatDom();
+    setRunTurnForTests(async (options) => {
+      appendStoppedToolRound(options);
+      return { outcome: 'crashed', error: 'aborted' };
+    });
+    const chat = makeChat();
+    setSessionStateForTests({
+      version: 3,
+      activeId: chat.id,
+      sidebarCollapsed: false,
+      chats: [chat],
+    });
+    const { runChatTurn } = await import('../../src/chat/run-turn-chat.ts');
+    await runChatTurn({ chat, ...SIMPLE_TURN });
+
+    setRunTurnForTests(async () => ({ outcome: 'crashed', error: 'aborted' }));
+    await runChatTurn({
+      chat,
+      ...SIMPLE_TURN,
+      rawText: 'carry on',
+      userText: 'carry on',
+      displayText: 'carry on',
+      historyContent: 'carry on',
+    });
+
+    assert.deepEqual(
+      chat.history.map((m) => m.role),
+      ['user', 'assistant', 'tool', 'user'],
+    );
+    assert.equal((chat.history[2] as ToolResultMessage).content, 'export const a = 1;');
+  });
+
+  test('next user send still drops an unpaired tool-call tail', async () => {
+    setTitlesConfigForTests({ ...DEFAULT_TITLES_CONFIG, enabled: false });
+    installChatDom();
+    setRunTurnForTests(async (options) => {
+      options.transcript?.append(options.chatId, TOOL_CALL_ROW);
+      return { outcome: 'crashed', error: 'aborted' };
+    });
+    const chat = makeChat();
+    setSessionStateForTests({
+      version: 3,
+      activeId: chat.id,
+      sidebarCollapsed: false,
+      chats: [chat],
+    });
+    const { runChatTurn } = await import('../../src/chat/run-turn-chat.ts');
+    await runChatTurn({ chat, ...SIMPLE_TURN });
+
+    setRunTurnForTests(async () => ({ outcome: 'crashed', error: 'aborted' }));
+    await runChatTurn({
+      chat,
+      ...SIMPLE_TURN,
+      rawText: 'carry on',
+      userText: 'carry on',
+      displayText: 'carry on',
+      historyContent: 'carry on',
+    });
+
+    assert.deepEqual(
+      chat.history.map((m) => m.role),
+      ['user', 'user'],
+    );
   });
 
   test('system Stop keeps currentGenerationId for boot resume', async () => {

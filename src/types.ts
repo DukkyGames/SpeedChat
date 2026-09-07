@@ -213,6 +213,8 @@ export interface AssistantToolCallMessage {
    * blocks when thinking stays enabled on follow-up Messages API requests.
    */
   thinkingSignature?: string;
+  /** User stopped generation while this row's tool batch was still running. */
+  stopped?: boolean;
   stats?: Stats;
   usage?: Usage;
 }

@@ -112,7 +112,7 @@ import {
   isFirstUserMessagePending,
   scheduleChatTitleGeneration,
 } from './titles/schedule';
-import { clearPostToolTailBeforeSend } from './history';
+import { repairSessionHistoryTail } from './history';
 import { buildTurnSnapshot, resolveForkHistoryIndex } from './turn-snapshot';
 import {
   capturePostTurnSnapshot,
@@ -696,7 +696,9 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
       : false;
 
     if (pushUser) {
-      if (clearPostToolTailBeforeSend(chat)) {
+      // Only unpaired tool chains go; a Stop mid tool batch leaves a paired tail
+      // that is the whole point of the turn the user is following up on.
+      if (repairSessionHistoryTail(chat)) {
         scheduleSaveSessions();
       }
       clearComposerDraftOnChat(chat);

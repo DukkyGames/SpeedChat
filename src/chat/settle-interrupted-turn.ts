@@ -19,6 +19,7 @@ import { completeStreamAnnouncer } from '../ui/a11y/stream-announcer';
 import { markMessageFailed, markMessageStopped } from '../ui/stopped-affordance';
 import {
   appendBubble,
+  paintStoppedRowFromHistory,
   removeOrphanStreamingRow,
   renderChatFromHistory,
   revealAssistantProseBubble,
@@ -50,6 +51,7 @@ import type { TranscriptMessage, TranscriptStore } from '../../server/runner/tra
 import type { TurnResult } from '../../server/runner/run-turn';
 import type {
   AssistantMessage,
+  AssistantToolCallMessage,
   Chat,
   ChatStopReason,
   TurnRunId,
@@ -182,6 +184,29 @@ export function persistStoppedTurnPartial(params: {
   return true;
 }
 
+/**
+ * Stop that lands after the round closed (mid tool batch) has no partial to write:
+ * `round_end` already drained the painter and the thought controller. Flag the
+ * assistant row that owns the interrupted work so the stop survives a reload.
+ *
+ * @returns the flagged history index, or -1 when the tail holds no assistant row.
+ */
+export function markInterruptedAssistantRowStopped(chat: Chat): number {
+  for (let i = chat.history.length - 1; i >= 0; i -= 1) {
+    const row = chat.history[i];
+    if (row.role === 'user') return -1;
+    if (row.role !== 'assistant') continue;
+    const assistant = row as AssistantMessage | AssistantToolCallMessage;
+    if (assistant.stopped !== true) {
+      assistant.stopped = true;
+      recordChatMessage(chat);
+      scheduleSaveSessions();
+    }
+    return i;
+  }
+  return -1;
+}
+
 export function persistFailedTurnPartial(params: {
   chat: Chat;
   store?: InterruptedTurnStore;
@@ -245,13 +270,19 @@ export function settleStoppedTurn(chrome: InterruptedTurnChrome): SettleStoppedR
     removeOrphanStreamingRow(wrap, chrome.streamStatus);
   }
 
-  persistStoppedTurnPartial({
+  const persistedPartial = persistStoppedTurnPartial({
     chat,
     store: chrome.store,
     turnRunId: chrome.turnRunId,
     partialText: text,
     thinking,
   });
+  if (!persistedPartial) {
+    const markedIndex = markInterruptedAssistantRowStopped(chat);
+    if (markedIndex >= 0 && isStreamDomVisible(chat.id)) {
+      paintStoppedRowFromHistory(markedIndex);
+    }
+  }
 
   chrome.streamStatus?.dispose();
   if (isStreamDomVisible(chat.id)) {

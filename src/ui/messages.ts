@@ -105,7 +105,11 @@ import { syncTodoPanel } from './todo-panel';
 import { renderThoughtsToggle, syncThoughtsCaretPulse } from './thought-bubbles';
 import { renderToolCall, renderToolResult } from './tool-messages';
 import { attachShellKillUi } from './shell-run-ui';
-import { markMessageFailed, markMessageStopped } from './stopped-affordance';
+import {
+  createStoppedMarkerRow,
+  markMessageFailed,
+  markMessageStopped,
+} from './stopped-affordance';
 import { markMessageTruncated } from './truncated-affordance';
 import { appendFailedTurnRecoveryActions } from './failed-turn-recovery-actions';
 import { indexOfLastFailedAssistantAtTail } from '../chat/history';
@@ -349,12 +353,16 @@ function appendHistoryMessageAt(host: HTMLElement, ctx: HistoryRenderContext, i:
       if (msg.stats || msg.usage) {
         appendStats(wrap, msg.stats || {}, msg.usage || {});
       }
+      if (msg.stopped) {
+        markMessageStopped(wrap);
+      }
       attachMessageActions(wrap, {
         chatId: chat.id,
         historyIndex: i,
         turnKind: 'assistant-tools',
       });
     }
+    const stoppedNeedsMarkerRow = Boolean(msg.stopped) && !prose && !hasToolThinking;
 
     let firstToolEl: HTMLElement | null = null;
     for (const tc of msg.tool_calls) {
@@ -388,6 +396,9 @@ function appendHistoryMessageAt(host: HTMLElement, ctx: HistoryRenderContext, i:
     for (const pair of getBeforeAfterPairs(chat.id)) {
       if (pair.turnId !== String(i)) continue;
       host.appendChild(renderBeforeAfterCard(pair));
+    }
+    if (stoppedNeedsMarkerRow) {
+      host.appendChild(createStoppedMarkerRow());
     }
     return;
   }
@@ -915,6 +926,23 @@ export function appendInjectionNoticesDom(
 }
 
 // ── Bubbles ──────────────────────────────────────────────────────────────────
+
+/**
+ * Paint the stopped label on a row the live turn already rendered, matching what
+ * a reload draws: chip the bubble when the row has one, otherwise give the label
+ * its own row under the tool cards the stop cut short.
+ */
+export function paintStoppedRowFromHistory(historyIndex: number): void {
+  const mount = getActiveChatMountElement();
+  const painted = mount.querySelector<HTMLElement>(
+    `.msg.assistant[data-history-index="${historyIndex}"]`,
+  );
+  if (painted) {
+    markMessageStopped(painted);
+    return;
+  }
+  appendChatTranscriptNode(createStoppedMarkerRow(), mount);
+}
 
 export function appendBubble(
   role: 'user' | 'assistant',

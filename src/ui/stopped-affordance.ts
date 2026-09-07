@@ -32,6 +32,17 @@ export function markMessageStopped(wrap: HTMLElement): void {
   insertMessageChip(wrap, 'msg--stopped', 'msg-stopped-chip', 'Generation stopped');
 }
 
+/**
+ * Standalone stopped label for a turn whose last output was a tool card, so the
+ * assistant row it belongs to painted no bubble to chip.
+ */
+export function createStoppedMarkerRow(): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.className = 'msg assistant';
+  markMessageStopped(wrap);
+  return wrap;
+}
+
 /** Partial-reply label on an assistant row the turn errored out of. */
 export function markMessageFailed(
   wrap: HTMLElement,

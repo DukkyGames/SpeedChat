@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
   clearFailedAssistantOutput,
-  clearPostToolTailBeforeSend,
   copyHistoryForOutboundApi,
   indexOfLastFailedAssistantAtTail,
   repairSessionHistoryTail,
@@ -105,11 +104,18 @@ describe('chat/history (MIN-184)', () => {
     assert.equal(chat.history.length, 1);
   });
 
-  test('clearPostToolTailBeforeSend removes answered tool tail before reprompt', () => {
+  // A Stop mid tool batch leaves exactly this shape. The next user send used to
+  // slice back to the last user row, deleting the whole turn the user was following
+  // up on; a paired tail is legal history and now survives the repair.
+  test('repairSessionHistoryTail keeps an answered tool tail before reprompt', () => {
     const chat = poisonedChat();
-    assert.equal(clearPostToolTailBeforeSend(chat), true);
-    assert.equal(chat.history.length, 1);
-    assert.equal(hasPostToolTail(chat.history), false);
+    assert.equal(hasPostToolTail(chat.history), true);
+    assert.equal(repairSessionHistoryTail(chat), false);
+    assert.equal(chat.history.length, 3);
+    assert.deepEqual(
+      chat.history.map((m) => m.role),
+      ['user', 'assistant', 'tool'],
+    );
   });
 
   test('turnProducedOutput is true when assistant or tool rows exist after user fork', () => {

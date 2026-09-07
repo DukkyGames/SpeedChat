@@ -1,5 +1,5 @@
 import { hasPostToolTail } from '../tools/turn-continuation';
-import { indexOfLastUserMessage, normalizeHistoryTail } from './history-truncate-core';
+import { normalizeHistoryTail } from './history-truncate-core';
 import type { AssistantMessage, Chat, Message } from '../types';
 
 /** Clone session history and drop incomplete tool tails before API serialization. */
@@ -76,7 +76,12 @@ export function clearFailedAssistantOutput(
   return true;
 }
 
-/** Drop orphan tool tails from persisted history (incomplete tool_call chains). */
+/**
+ * Drop orphan tool tails from persisted history (incomplete tool_call chains).
+ *
+ * A *paired* tool tail is real turn context — a Stop mid tool batch leaves one —
+ * so it survives. Only chains the provider would reject are trimmed.
+ */
 export function repairSessionHistoryTail(chat: Chat): boolean {
   if (!hasPostToolTail(chat.history)) {
     return false;
@@ -84,21 +89,4 @@ export function repairSessionHistoryTail(chat: Chat): boolean {
   const before = chat.history.length;
   normalizeHistoryTail(chat.history);
   return chat.history.length !== before;
-}
-
-export function clearPostToolTailBeforeSend(chat: Chat): boolean {
-  if (!hasPostToolTail(chat.history)) {
-    return false;
-  }
-  const lastUser = indexOfLastUserMessage(chat.history);
-  if (lastUser < 0) {
-    return false;
-  }
-  const keepThrough = lastUser + 1;
-  if (chat.history.length <= keepThrough) {
-    return false;
-  }
-  chat.history = chat.history.slice(0, keepThrough);
-  normalizeHistoryTail(chat.history);
-  return true;
 }

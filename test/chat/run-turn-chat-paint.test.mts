@@ -24,6 +24,7 @@ function hostStub(overrides: {
     bubble: HTMLElement,
     markdown: string,
     streamCursor: HTMLElement,
+    opts?: { immediate?: boolean },
   ) => void;
   chatId?: string;
   isDomVisible?: () => boolean;
@@ -258,6 +259,32 @@ describe('P7-B coalesced chat paint (MIN-729)', () => {
 
     assert.equal(ticks.length, 0, 'tools do not schedule a transcript paint');
     assert.ok(stub.mount.querySelector('.tool-call-msg'), 'tool row appears immediately');
+  });
+
+  test('tool_streaming flushes the latest delta immediately, not the first token', () => {
+    // Do not leave "Paths" on screen while the 100ms markdown debounce waits.
+    const ticks: Array<() => void> = [];
+    const markdownCalls: Array<{ text: string; immediate?: boolean }> = [];
+    const stub = hostStub({
+      schedulePaintTick: (cb) => {
+        ticks.push(cb);
+      },
+      scrollTranscript: () => {},
+      scheduleMarkdown: (_bubble, markdown, _cursor, opts) => {
+        markdownCalls.push({ text: markdown, immediate: opts?.immediate });
+      },
+    });
+    const painter = createChatTurnEventPainter(stub.host);
+
+    painter.onEvent({ type: 'delta', text: 'Paths' });
+    painter.onEvent({ type: 'delta', text: 'Paths verified. Writing the plan file now.' });
+    assert.equal(markdownCalls.length, 0, 'rAF not flushed yet');
+
+    painter.onEvent({ type: 'tool_streaming', name: 'save_file' });
+
+    assert.equal(markdownCalls.length, 1);
+    assert.equal(markdownCalls[0]?.text, 'Paths verified. Writing the plan file now.');
+    assert.equal(markdownCalls[0]?.immediate, true);
   });
 });
 

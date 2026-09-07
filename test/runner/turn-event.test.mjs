@@ -571,4 +571,121 @@ describe('TurnEvent members (P10-B)', () => {
       },
     );
   });
+
+  function burstProseChunks(parts, finishReason = 'stop') {
+    // One TCP dump of many content deltas — used to leave the UI on the first word.
+    return [
+      ...parts.map((text) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`),
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: finishReason }] })}\n\n`,
+      'event: end\ndata: {"status":"complete"}\n\n',
+    ];
+  }
+
+  function proseThenToolArgChunks(proseParts, name, argFragments, toolCallId = 'call_save') {
+    // Prose first, then a long argument stream (the save_file screenshot case).
+    const chunks = proseParts.map(
+      (text) => `data: ${JSON.stringify({ choices: [{ delta: { content: text } }] })}\n\n`,
+    );
+    chunks.push(
+      `data: ${JSON.stringify({
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: toolCallId,
+                  type: 'function',
+                  function: { name, arguments: '' },
+                },
+              ],
+            },
+          },
+        ],
+      })}\n\n`,
+    );
+    for (const frag of argFragments) {
+      chunks.push(
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              delta: {
+                tool_calls: [{ index: 0, function: { arguments: frag } }],
+              },
+            },
+          ],
+        })}\n\n`,
+      );
+    }
+    chunks.push(
+      `data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: 'tool_calls' }] })}\n\n`,
+    );
+    chunks.push('event: end\ndata: {"status":"complete"}\n\n');
+    return chunks;
+  }
+
+  test('burst content deltas emit the full prose, not only the first token', { timeout: 20_000 }, async () => {
+    // Leading-only persist used to paint "Paths" and drop the rest of this burst.
+    const parts = ['Paths', ' verified.', ' Writing the plan file now.'];
+    const full = parts.join('');
+    await withFake([{ emit: burstProseChunks(parts) }], async (baseUrl) => {
+      const events = [];
+      await runTurn({
+        chatId: CHAT_UUID,
+        seed: 'Write the plan.',
+        tools: [],
+        model: { providerId: 'local-fake', id: 'fake-model' },
+        onEvent: (event) => events.push(event),
+        deps: stubDeps(baseUrl),
+        ...CHAT_SHAPED,
+      });
+      const deltas = events.filter((e) => e.type === 'delta').map((e) => e.text);
+      assert.ok(
+        deltas.some((text) => text === full),
+        `expected a live delta with full prose, got ${JSON.stringify(deltas)}`,
+      );
+    });
+  });
+
+  test('full prose is live before a long tool-argument stream finishes', { timeout: 20_000 }, async () => {
+    // Screenshot case: first word + Calling… until save_file args finished.
+    const parts = ['Paths', ' verified.', ' Writing the plan file now.'];
+    const full = parts.join('');
+    const argFrags = ['{"path":', '"documentation/plans/x.md",', '"content":"', 'x'.repeat(200), '"}'];
+    await withFake(
+      [
+        { match: { nth: 0 }, emit: proseThenToolArgChunks(parts, 'get_datetime', argFrags, 'call_dt') },
+        { emit: proseSseChunks('Done.') },
+      ],
+      async (baseUrl) => {
+        const events = [];
+        let proseBeforeExecute = '';
+        await runTurn({
+          chatId: CHAT_UUID,
+          seed: 'Write the plan.',
+          tools: [DATETIME_TOOL],
+          model: { providerId: 'local-fake', id: 'fake-model' },
+          onEvent: (event) => events.push(event),
+          deps: stubDeps(baseUrl, { runHeadlessToolBatch: passthroughBatch }),
+          execute: async () => {
+            const deltas = events.filter((e) => e.type === 'delta').map((e) => e.text);
+            proseBeforeExecute = deltas.find((text) => text === full) ?? deltas[deltas.length - 1] ?? '';
+            return { content: 'ok' };
+          },
+          ...CHAT_SHAPED,
+        });
+        assert.equal(proseBeforeExecute, full, 'full prose must be live before execute');
+        const streamingAt = events.findIndex((e) => e.type === 'tool_streaming');
+        assert.ok(streamingAt >= 0, 'expected tool_streaming');
+        const deltasBeforeStreaming = events
+          .slice(0, streamingAt + 1)
+          .filter((e) => e.type === 'delta')
+          .map((e) => e.text);
+        assert.ok(
+          deltasBeforeStreaming.includes(full),
+          `expected full prose at or before tool_streaming, got ${JSON.stringify(deltasBeforeStreaming)}`,
+        );
+      },
+    );
+  });
 });

@@ -579,6 +579,10 @@ function createSubAgentRunner(deps) {
       let lastProgressEmit = 0;
       let forcedEmitQueued = false;
       let forcedPartialAssistant;
+      /** Latest streaming prose for a trailing persist snapshot (leading-only used to drop it). */
+      let latestUnsettledPartial;
+      /** Trailing timer so a token burst still flushes the latest clone after 80ms. */
+      let trailingProgressTimer = null;
       const usageSegments = [];
       const statsSegments = [];
       const noteUsage = (segment) => {
@@ -590,8 +594,22 @@ function createSubAgentRunner(deps) {
       };
       const budgetEvents = [];
       const summarySchema = input.summarySchema;
-        const flushForcedEmit = () => {
+      const clearTrailingProgress = () => {
+        if (trailingProgressTimer == null) return;
+        clearTimeout(trailingProgressTimer);
+        trailingProgressTimer = null;
+      };
+      const emitUnsettledProgress = (partialAssistant) => {
+        lastProgressEmit = Date.now();
+        const snapshot = cloneSubAgentMessages2(messages);
+        if (partialAssistant) {
+          snapshot.push({ role: "assistant", content: partialAssistant });
+        }
+        input.onMessagesChange(snapshot, { settled: false });
+      };
+      const flushForcedEmit = () => {
         forcedEmitQueued = false;
+        clearTrailingProgress();
         if (!input.onMessagesChange) return;
         lastProgressEmit = Date.now();
         const snapshot = cloneSubAgentMessages2(messages);
@@ -604,21 +622,33 @@ function createSubAgentRunner(deps) {
       };
       const emitProgress = (partialAssistant, force = false) => {
         if (!input.onMessagesChange) return;
+        if (partialAssistant !== void 0) {
+          latestUnsettledPartial = partialAssistant;
+        }
         const now = Date.now();
         if (force) {
+          // Settled persist must not also fire a trailing synthetic assistant row.
+          clearTrailingProgress();
           forcedPartialAssistant = partialAssistant ?? forcedPartialAssistant;
           if (forcedEmitQueued) return;
           forcedEmitQueued = true;
           queueMicrotask(flushForcedEmit);
           return;
         }
-        if (now - lastProgressEmit < LIVE_TRANSCRIPT_EMIT_MS) return;
-        lastProgressEmit = now;
-        const snapshot = cloneSubAgentMessages2(messages);
-        if (partialAssistant) {
-          snapshot.push({ role: "assistant", content: partialAssistant });
+        if (now - lastProgressEmit < LIVE_TRANSCRIPT_EMIT_MS) {
+          if (trailingProgressTimer == null) {
+            const wait = Math.max(0, LIVE_TRANSCRIPT_EMIT_MS - (now - lastProgressEmit));
+            trailingProgressTimer = setTimeout(() => {
+              trailingProgressTimer = null;
+              if (!input.onMessagesChange) return;
+              emitUnsettledProgress(latestUnsettledPartial);
+            }, wait);
+            trailingProgressTimer.unref?.();
+          }
+          return;
         }
-        input.onMessagesChange(snapshot, { settled: false });
+        clearTrailingProgress();
+        emitUnsettledProgress(partialAssistant);
       };
       let liveEmitQueued = false;
       let pendingLive = null;
@@ -679,6 +709,28 @@ function createSubAgentRunner(deps) {
           input.onTurnEvent(event);
         } catch {
         }
+      };
+      // Live UI deltas are independent of emitProgress (persist throttle). A
+      // token burst in one read() used to paint the first word until stream end.
+      let liveDeltaQueued = false;
+      let pendingLiveDelta = null;
+      const flushLiveDelta = () => {
+        liveDeltaQueued = false;
+        const text = pendingLiveDelta;
+        pendingLiveDelta = null;
+        if (!text) return;
+        emitTurnEvent({ type: "delta", text });
+      };
+      const emitLiveDelta = (text, force = false) => {
+        if (!text) return;
+        pendingLiveDelta = text;
+        if (force) {
+          flushLiveDelta();
+          return;
+        }
+        if (liveDeltaQueued) return;
+        liveDeltaQueued = true;
+        queueMicrotask(flushLiveDelta);
       };
       let nextRoundIndex = 0;
       let currentRoundIndex = 0;
@@ -993,6 +1045,8 @@ function createSubAgentRunner(deps) {
             });
           },
           onToolCallDelta: (toolName) => {
+            // Argument streaming can last minutes; flush prose before "Calling…".
+            emitLiveDelta(streamingAssistant, true);
             emitLiveActivity({
               phase: "tools",
               currentToolName: toolName
@@ -1006,6 +1060,7 @@ function createSubAgentRunner(deps) {
           input.type,
           (fullSoFar) => {
             streamingAssistant = fullSoFar;
+            emitLiveDelta(streamingAssistant);
             emitLiveActivity({
               phase: "generating",
               partialReasoning: void 0,
@@ -1020,7 +1075,9 @@ function createSubAgentRunner(deps) {
             onTurnEvent: emitTurnEvent,
             chatId: input.parentChatId || input.runId
           }
-        );
+        ).finally(() => {
+          emitLiveDelta(streamingAssistant, true);
+        });
         const runSubTurnWithThinkingBudget = async () => {
           let currentBody = body;
           const tracker = thinkingBudgetTracker;

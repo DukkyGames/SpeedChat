@@ -372,6 +372,11 @@ export interface AssistantBubbleRenderOptions {
    * Debounce-timer flushes keep the default (true) so a paused stream still pins.
    */
   pinScroll?: boolean;
+  /**
+   * Paint now even inside the debounce window. Tool-start / tool-call flushes
+   * use this so a pending full sentence is not hidden under "Calling…".
+   */
+  immediate?: boolean;
 }
 
 /** Paint the latest pending markdown for a streaming assistant bubble. */
@@ -412,6 +417,11 @@ export function scheduleAssistantBubbleRender(
   const state = getRenderState(bubble);
   state.pendingMarkdown = markdown;
   state.pendingCursor = streamCursor;
+
+  if (opts?.immediate) {
+    flushAssistantBubbleRender(bubble, opts);
+    return;
+  }
 
   const now = Date.now();
   const neverRendered = state.lastRenderedAt === 0;

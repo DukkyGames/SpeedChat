@@ -262,7 +262,15 @@ that ignore the second argument stay valid.
 - Forced emits (`emitProgress(undefined, true)` after a real `messages.push`)
   → `settled: true`.
 - Throttled emits (`emitProgress(streamingAssistant)` during a stream, synthetic
-  partial on the clone) → `settled: false`.
+  partial on the clone) → `settled: false`. Leading+trailing (~80 ms): a token
+  burst that would otherwise keep the first snapshot schedules one trailing
+  flush of the latest clone. A settled force emit cancels that timer so it
+  cannot grow a second synthetic assistant row.
+
+Live chat UI does **not** wait on that persist throttle. `onDelta` emits
+`TurnEvent.delta` via a microtask (latest snapshot wins) and flushes
+immediately on `tool_streaming` / stream end, so the bubble is not stuck on
+the first word until the generation finishes.
 
 **Continue persist:** a monotonic `persistCursor` starting at
 `buildOpeningTranscript().persistFrom`. On `settled === true`, suffix

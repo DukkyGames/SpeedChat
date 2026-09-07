@@ -74,6 +74,7 @@ export interface ChatTurnPaintHost {
     bubble: HTMLElement,
     markdown: string,
     streamCursor: HTMLElement,
+    opts?: { immediate?: boolean },
   ) => void;
   schedulePaintTick?: (cb: () => void) => void;
   onCoalescedPaint?: (snap: ChatTurnPaintSnapshot) => void;
@@ -226,8 +227,16 @@ export function createChatTurnEventPainter(host: ChatTurnPaintHost): ChatTurnEve
 
   const scheduleMarkdown =
     host.scheduleMarkdown ??
-    ((bubble: HTMLElement, markdown: string, streamCursor: HTMLElement) => {
-      scheduleAssistantBubbleRender(bubble, markdown, streamCursor, { pinScroll: false });
+    ((
+      bubble: HTMLElement,
+      markdown: string,
+      streamCursor: HTMLElement,
+      opts?: { immediate?: boolean },
+    ) => {
+      scheduleAssistantBubbleRender(bubble, markdown, streamCursor, {
+        pinScroll: false,
+        immediate: opts?.immediate,
+      });
     });
   const scrollTranscript = host.scrollTranscript ?? scrollChatIfPinned;
   const schedulePaintTick = host.schedulePaintTick ?? defaultSchedulePaintTick;
@@ -259,7 +268,7 @@ export function createChatTurnEventPainter(host: ChatTurnPaintHost): ChatTurnEve
     toolStart = null;
   };
 
-  const flushPaint = (): void => {
+  const flushPaint = (opts?: { immediateMarkdown?: boolean }): void => {
     paintScheduled = false;
     const thinkingSnap = pendingThinking;
     const deltaSnap = pendingDelta;
@@ -283,7 +292,14 @@ export function createChatTurnEventPainter(host: ChatTurnPaintHost): ChatTurnEve
           revealAssistantProseBubble(host.wrap, host.bubble, host.streamStatus);
         }
       }
-      if (visible) scheduleMarkdown(host.bubble, deltaSnap, host.cursor);
+      if (visible) {
+        scheduleMarkdown(
+          host.bubble,
+          deltaSnap,
+          host.cursor,
+          opts?.immediateMarkdown ? { immediate: true } : undefined,
+        );
+      }
     }
 
     if (visible) scrollTranscript();
@@ -413,13 +429,13 @@ export function createChatTurnEventPainter(host: ChatTurnPaintHost): ChatTurnEve
       return;
     }
     if (event.type === 'tool_streaming') {
-      flushPaint();
+      flushPaint({ immediateMarkdown: true });
       lastStreamingToolName = event.name;
       bindToolStartIndicator();
       return;
     }
     if (event.type === 'tool_call') {
-      flushPaint();
+      flushPaint({ immediateMarkdown: true });
       clearToolStartIndicator();
       toolCallCount += 1;
       const parsed = parsePaintToolArguments(event.arguments);

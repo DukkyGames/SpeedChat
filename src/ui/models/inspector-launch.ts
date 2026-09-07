@@ -58,6 +58,7 @@ export function settingsForDraft(draft: LlamaServeSettings | undefined): LlamaSe
     if (draft.parallel != null) out.parallel = draft.parallel;
     if (draft.extra_args) out.extra_args = draft.extra_args;
     if (draft.env) out.env = draft.env;
+    if (draft.device) out.device = draft.device;
     if (draft.split_mode) out.split_mode = draft.split_mode;
     if (draft.tensor_split) out.tensor_split = draft.tensor_split;
     if (draft.main_gpu != null) out.main_gpu = draft.main_gpu;

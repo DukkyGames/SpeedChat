@@ -2042,6 +2042,31 @@ html:not(.minnow-os-enabled) .models-page.is-open {
   margin-top: 2px;
 }
 
+/* Per-GPU tensor-split: range plus a compact weight field. */
+.models-field--gpu-ratio {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 7ch;
+  gap: 8px;
+  align-items: center;
+}
+
+.models-field--gpu-ratio .models-field__range-head {
+  grid-column: 1 / -1;
+}
+
+.models-field--gpu-ratio .models-field__range {
+  width: 100%;
+  min-width: 0;
+}
+
+.models-field--gpu-ratio .models-field__input {
+  width: 7ch;
+  height: 32px;
+  padding: 0 6px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 .models-advanced__body .models-hint {
   margin: -4px 0 0;
 }

@@ -66,6 +66,9 @@ describe('models launch prefs', () => {
     assert.equal(LAUNCH_SETTING_KEYS.includes('chat_template_file'), true);
     assert.equal(LAUNCH_SETTING_KEYS.includes('no_mmap'), true);
     assert.equal(LAUNCH_SETTING_KEYS.includes('mlock'), true);
+    assert.equal(LAUNCH_SETTING_KEYS.includes('device'), true);
+    assert.equal(LAUNCH_SETTING_KEYS.includes('split_mode'), true);
+    assert.equal(LAUNCH_SETTING_KEYS.includes('tensor_split'), true);
     assert.equal(LAUNCH_SETTING_KEYS.includes('unknownFlag'), false);
   });
 
@@ -86,6 +89,19 @@ describe('models launch prefs', () => {
 
     prefs = await setLibraryLaunchSettings(LIB_GGUF, null);
     assert.equal(prefs.byLibraryId[LIB_GGUF], undefined);
+  });
+
+  test('persists device split fields', async () => {
+    const prefs = await setLibraryLaunchSettings(LIB_DEMO, {
+      device: 'CUDA1,CUDA0',
+      split_mode: 'layer',
+      tensor_split: '5,5',
+    });
+    assert.equal(prefs.byLibraryId[LIB_DEMO].device, 'CUDA1,CUDA0');
+    assert.equal(prefs.byLibraryId[LIB_DEMO].split_mode, 'layer');
+    assert.equal(prefs.byLibraryId[LIB_DEMO].tensor_split, '5,5');
+    const roundTrip = llamaSettingsFromLaunchRow(prefs.byLibraryId[LIB_DEMO]);
+    assert.equal(roundTrip.device, 'CUDA1,CUDA0');
   });
 
   test('empty object deletes the row', async () => {

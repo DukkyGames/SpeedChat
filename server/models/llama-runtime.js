@@ -8,6 +8,8 @@ import { createGunzip } from 'node:zlib';
 import { getMinnowHome } from '../config/home.js';
 import { runProcess } from '../process-runner.js';
 import { getAppRoot } from '../workspace/root.js';
+import { parseLlamaListDevices, synthesizeLlamaDevices } from '../../src/models/llama-devices.mjs';
+import { detectHardware } from '../system/hardware.js';
 import { readLlamaCppConfig } from './llama-args.js';
 import {
   detectPreferredLlamaVariant,
@@ -30,6 +32,9 @@ let installPromise = null;
  * @type {Map<string, Promise<boolean>>}
  */
 const thinkingBudgetSupportCache = new Map();
+
+/** Cached `llama-server --list-devices` rows, keyed by binary path. */
+const listDevicesCache = new Map();
 
 /**
  * @typedef {{ phase: 'idle' | 'installing' | 'completed' | 'failed', percent: number, message: string, error: string | null }} LlamaInstallJob
@@ -347,6 +352,7 @@ export async function getLlamaRuntimeStatus() {
     preferredVariant,
     installableVariants,
     loadRateBytesPerMs: readLoadRateForVariant(config, variant),
+    devices: await listLlamaGpuDevices(resolved.path, variant),
   };
 }
 
@@ -677,6 +683,7 @@ async function installManagedLlamaServer(opts) {
     );
 
     thinkingBudgetSupportCache.clear();
+    listDevicesCache.clear();
 
     onProgress({ percent: 100, message: 'llama-server ready' });
     setInstallJob({ phase: 'completed', percent: 100, message: 'llama-server ready', error: null });
@@ -716,12 +723,43 @@ export function buildLlamaServerEnv(binaryPath, baseEnv = process.env) {
 export function resetLlamaRuntimeInstallForTests() {
   installPromise = null;
   thinkingBudgetSupportCache.clear();
+  listDevicesCache.clear();
 }
 
 /**
- * @param {string} binaryPath
- * @returns {Promise<boolean>}
+ * GPU ids llama.cpp will accept on `--device`. Prefers `--list-devices`; falls
+ * back to hardware.gpus synthesized as CUDA0 / Vulkan0 / …
+ *
+ * @param {string | null | undefined} binaryPath
+ * @param {string | null | undefined} [variant]
  */
+export async function listLlamaGpuDevices(binaryPath, variant) {
+  const key = binaryPath || `__synth:${variant || 'cpu'}`;
+  const cached = listDevicesCache.get(key);
+  if (cached) return cached;
+
+  const probe = (async () => {
+    if (binaryPath) {
+      try {
+        const result = await runProcess(binaryPath, ['--list-devices'], { timeout: 15_000 });
+        const parsed = parseLlamaListDevices(`${result.stdout}\n${result.stderr}`);
+        if (parsed.length) return parsed;
+      } catch {
+        /* binary missing or flag unsupported */
+      }
+    }
+    const hardware = await detectHardware();
+    return synthesizeLlamaDevices(hardware, variant || hardware?.backend);
+  })();
+
+  listDevicesCache.set(key, probe);
+  return probe;
+}
+
+export function resetLlamaDeviceListCacheForTests() {
+  listDevicesCache.clear();
+}
+
 export async function detectLlamaThinkingBudgetSupport(binaryPath) {
   if (!binaryPath) return false;
   const cached = thinkingBudgetSupportCache.get(binaryPath);

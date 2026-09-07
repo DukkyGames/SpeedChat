@@ -15,6 +15,8 @@ export declare const CONTEXT_LADDER: readonly number[];
 /** Shape of `detectHardware()` fields the planner reads. */
 export interface LaunchHardware {
   gpuVramGb?: number | null;
+  /** Smallest selected card when `--device` pins a subset; wins over gpuVramGb for budgeting. */
+  selectedGpuVramGb?: number | null;
   availableRamGb?: number | null;
   totalRamGb?: number | null;
   backend?: string | null;

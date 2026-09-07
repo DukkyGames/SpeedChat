@@ -34,6 +34,7 @@ const WINDOWS_PS_CMD = `
                 $r.gpu_vram_gb = [math]::Round(($gpus | Measure-Object -Property vram_mb -Sum).Sum / 1024, 1)
                 $r.gpu_count = $gpus.Count
                 $r.gpu_backend = 'cuda'
+                $r.gpu_list = @($gpus | ForEach-Object { @{ name = $_.name; vram_mb = $_.vram_mb } })
             } 
         }
         catch {}
@@ -421,25 +422,43 @@ async function detectWindows() {
       arch: d.arch ? `${d.arch}` : 'x64',
     };
 
-    const n = result.gpuCount || 0;
-    if (result.hasGpu && n > 0) {
-      const each = Math.round(((result.gpuVramGb || 0) / n) * 10) / 10;
-      result.gpus = Array.from({ length: n }, (_, i) => ({
-        index: i,
-        name: result.gpuName,
-        vramGb: each,
-      }));
-      result.gpuGroups = [
-        {
-          name: result.gpuName,
-          vramEach: each,
-          count: n,
-          indices: Array.from({ length: n }, (_, i) => i),
-          vramTotal: result.gpuVramGb,
-        },
-      ];
-      result.homogeneous = true;
+    const listed = Array.isArray(d.gpu_list) ? d.gpu_list : [];
+    if (result.hasGpu && listed.length > 0) {
+      result.gpus = listed.map((gpu, i) => {
+        const vramMb = Number(gpu?.vram_mb);
+        return {
+          index: i,
+          name: typeof gpu?.name === 'string' && gpu.name.trim() ? gpu.name.trim() : result.gpuName,
+          vramGb: Number.isFinite(vramMb) ? Math.round((vramMb / 1024) * 10) / 10 : 0,
+        };
+      });
+      result.gpuCount = result.gpus.length;
+      result.gpuVramGb = Math.round(result.gpus.reduce((sum, g) => sum + g.vramGb, 0) * 10) / 10;
+      result.gpuName = result.gpus[0].name;
+      result.gpuGroups = groupGpus(result.gpus);
+      result.homogeneous = result.gpuGroups.length <= 1;
       result.unifiedMemory = false;
+    } else {
+      const n = result.gpuCount || 0;
+      if (result.hasGpu && n > 0) {
+        const each = Math.round(((result.gpuVramGb || 0) / n) * 10) / 10;
+        result.gpus = Array.from({ length: n }, (_, i) => ({
+          index: i,
+          name: result.gpuName,
+          vramGb: each,
+        }));
+        result.gpuGroups = [
+          {
+            name: result.gpuName,
+            vramEach: each,
+            count: n,
+            indices: Array.from({ length: n }, (_, i) => i),
+            vramTotal: result.gpuVramGb,
+          },
+        ];
+        result.homogeneous = true;
+        result.unifiedMemory = false;
+      }
     }
     return result;
   } catch {

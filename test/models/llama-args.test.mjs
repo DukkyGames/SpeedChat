@@ -761,4 +761,106 @@ describe('llama args', () => {
     assert.equal(plan.cache_type_v, 'q4_0');
     assert.equal(plan.swa_full, true);
   });
+
+  test('two inventory GPUs pin --device to the first id until the user opts in', () => {
+    const args = buildLlamaServerArgs({
+      modelPath: '/tmp/model.gguf',
+      port: 8085,
+      variant: 'cuda-12.4',
+      hardware: { gpuVramGb: 34, availableRamGb: 64, totalRamGb: 128, backend: 'cuda' },
+      weightsBytes: WEIGHTS_8B_Q4_KM,
+      ggufMeta: GGUF_8B,
+      llamaDevices: [
+        { id: 'CUDA0', name: 'RTX 4090', memoryMiB: 24576 },
+        { id: 'CUDA1', name: 'RTX 3080', memoryMiB: 10240 },
+      ],
+    });
+    assert.equal(flagValue(args, '--device'), 'CUDA0');
+    assert.equal(args.indexOf('--split-mode'), -1);
+    assert.equal(args.indexOf('--tensor-split'), -1);
+  });
+
+  test('user device list emits --device, layer split, and tensor-split in check order', () => {
+    const args = buildLlamaServerArgs({
+      modelPath: '/tmp/model.gguf',
+      port: 8085,
+      variant: 'cuda-12.4',
+      hardware: { gpuVramGb: 34, availableRamGb: 64, totalRamGb: 128, backend: 'cuda' },
+      weightsBytes: WEIGHTS_8B_Q4_KM,
+      ggufMeta: GGUF_8B,
+      llamaDevices: [
+        { id: 'CUDA0', name: 'RTX 4090', memoryMiB: 24576 },
+        { id: 'CUDA1', name: 'RTX 3080', memoryMiB: 10240 },
+      ],
+      settings: {
+        device: 'CUDA1,CUDA0',
+        split_mode: 'layer',
+        tensor_split: '5,5',
+      },
+    });
+    assert.equal(flagValue(args, '--device'), 'CUDA1,CUDA0');
+    assert.equal(flagValue(args, '--split-mode'), 'layer');
+    assert.equal(flagValue(args, '--tensor-split'), '5,5');
+  });
+
+  test('extra_args --device wins over the first-class device field', () => {
+    const args = buildLlamaServerArgs({
+      modelPath: '/tmp/model.gguf',
+      port: 8085,
+      variant: 'cuda-12.4',
+      hardware: HW_12GB,
+      weightsBytes: WEIGHTS_8B_Q4_KM,
+      ggufMeta: GGUF_8B,
+      llamaDevices: [
+        { id: 'CUDA0', name: 'A', memoryMiB: 8192 },
+        { id: 'CUDA1', name: 'B', memoryMiB: 8192 },
+      ],
+      settings: {
+        device: 'CUDA0,CUDA1',
+        extra_args: ['--device', 'CUDA1'],
+      },
+    });
+    const idxs = args.reduce((acc, token, i) => {
+      if (token === '--device') acc.push(i);
+      return acc;
+    }, []);
+    assert.equal(idxs.length, 1);
+    assert.equal(args[idxs[0] + 1], 'CUDA1');
+  });
+
+  test('tensor split mode forces --fit off', () => {
+    const args = buildLlamaServerArgs({
+      modelPath: '/tmp/model.gguf',
+      port: 8085,
+      variant: 'cuda-12.4',
+      hardware: { gpuVramGb: 48, availableRamGb: 64, totalRamGb: 128, backend: 'cuda' },
+      weightsBytes: WEIGHTS_8B_Q4_KM,
+      ggufMeta: GGUF_8B,
+      llamaDevices: [
+        { id: 'CUDA0', name: 'A', memoryMiB: 24576 },
+        { id: 'CUDA1', name: 'B', memoryMiB: 24576 },
+      ],
+      settings: { device: 'CUDA0,CUDA1', split_mode: 'tensor' },
+    });
+    assert.equal(flagValue(args, '--split-mode'), 'tensor');
+    assert.equal(flagValue(args, '--fit'), 'off');
+  });
+
+  test('mismatched tensor-split is omitted with a warning', () => {
+    const { args, warning } = buildLlamaServerLaunch({
+      modelPath: '/tmp/model.gguf',
+      port: 8085,
+      variant: 'cuda-12.4',
+      hardware: { gpuVramGb: 48, availableRamGb: 64, totalRamGb: 128, backend: 'cuda' },
+      weightsBytes: WEIGHTS_8B_Q4_KM,
+      ggufMeta: GGUF_8B,
+      llamaDevices: [
+        { id: 'CUDA0', name: 'A', memoryMiB: 24576 },
+        { id: 'CUDA1', name: 'B', memoryMiB: 24576 },
+      ],
+      settings: { device: 'CUDA0,CUDA1', tensor_split: '3,1,1' },
+    });
+    assert.equal(args.indexOf('--tensor-split'), -1);
+    assert.match(warning, /tensor-split/);
+  });
 });

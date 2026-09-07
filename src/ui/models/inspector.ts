@@ -17,6 +17,17 @@ import {
   type LlamaServeSettings,
   type ServeRecord,
 } from '../../models/api-client';
+import {
+  joinDeviceList,
+  joinTensorSplit,
+  parseDeviceList,
+  parseTensorSplit,
+  resolveLlamaDeviceInventory,
+  tensorSplitPercents,
+  toggleDeviceSelection,
+  vramProportionalSplit,
+  type LlamaGpuDevice,
+} from '../../models/llama-devices.mjs';
 import { mlxLoadedWithRows } from '../../models/mlx-loaded-with';
 import { buildSamplerFieldInputs } from '../settings-sampler-fields';
 import {
@@ -93,6 +104,8 @@ const LAUNCH_SAVE_DEBOUNCE_MS = 300;
 
 let llamaVariant: string | null = null;
 let llamaVariantFetched = false;
+/** GPU inventory from `--list-devices` or hardware fallback. */
+let llamaDeviceInventory: LlamaGpuDevice[] = [];
 /** Which advanced Load-tab groups are open, kept across re-renders after a slider touch. */
 /** Memory and Sampling match the LM Studio default: open on first visit. */
 const loadSectionOpen = new Set<string>(['memory', 'sampling']);
@@ -145,6 +158,7 @@ function ensureLlamaVariant(): string | null {
     void fetchLlamaRuntime()
       .then((status) => {
         llamaVariant = status.variant;
+        llamaDeviceInventory = Array.isArray(status.devices) ? status.devices : [];
       })
       .catch(() => {
         llamaVariant = null;
@@ -637,7 +651,7 @@ function launchMemoryHint(model: LibraryModel, displayed: DisplayedLaunch): HTML
     swaFull: draft?.swa_full === true,
     nGpuLayers: displayed.n_gpu_layers ?? undefined,
     backend: hw?.backend ?? null,
-    deviceCount: hw?.gpuCount ?? 1,
+    deviceCount: Math.max(1, parseDeviceList(draft?.device).length || (hw?.gpuCount ?? 1)),
     ...memoryHints(model),
   });
   return renderLaunchMemoryMeter({ estimate, hardware: hw });
@@ -679,6 +693,178 @@ function draftModelOptions(model: LibraryModel): Array<{ value: string; label: s
       value: row.path as string,
       label: `${row.name} · ${formatBytes(row.sizeBytes)}`,
     }));
+}
+
+function formatGpuDeviceLabel(device: LlamaGpuDevice): string {
+  const vramGb = device.memoryMiB > 0 ? Math.round((device.memoryMiB / 1024) * 10) / 10 : 0;
+  const vram = vramGb > 0 ? ` · ${vramGb} GB` : '';
+  return `${device.id} · ${device.name}${vram}`;
+}
+
+/** Saved --device order, or the first inventory row until the user opts in. */
+function selectedDeviceIds(draft: LlamaServeSettings | undefined, inventory: LlamaGpuDevice[]): string[] {
+  const saved = parseDeviceList(draft?.device);
+  if (saved.length) return saved.filter((id) => inventory.some((row) => row.id === id));
+  return inventory[0] ? [inventory[0].id] : [];
+}
+
+/** GPU fields stay auto-mode pass-through. Dropping to one card clears split flags. */
+function persistGpuSettings(
+  model: LibraryModel,
+  patch: LlamaServeSettings,
+  dropSplit = false,
+): void {
+  const displayed = displayedFor(model);
+  const next = applyPassThroughTouch(draftFor(model.id), displayed, patch);
+  if (dropSplit) {
+    delete next.split_mode;
+    delete next.tensor_split;
+  }
+  persistDraft(model, next);
+}
+
+function gpuRatioField(
+  deviceId: string,
+  value: number,
+  percent: number,
+  onChange: (value: number, remount: boolean) => void,
+): HTMLElement {
+  const wrap = el('div', 'models-field models-field--gpu-ratio');
+  const head = el('div', 'models-field__range-head');
+  head.append(el('span', 'models-field__label', deviceId));
+  const percentEl = el('span', 'models-field__range-value', `${percent}%`);
+  head.appendChild(percentEl);
+  wrap.appendChild(head);
+
+  const range = el('input', 'models-field__range') as HTMLInputElement;
+  range.type = 'range';
+  range.min = '1';
+  range.max = '100';
+  range.step = '1';
+  range.value = String(Math.max(1, Math.min(100, Math.round(percent))));
+  range.setAttribute('aria-label', `Tensor split share for ${deviceId}`);
+  range.addEventListener('input', () => {
+    percentEl.textContent = `${range.value}%`;
+    onChange(Number(range.value), false);
+  });
+  // Same as context/GPU-layer sliders: keep the inspector from remounting mid-drag.
+  bindLaunchRangeLifecycle(range);
+  wrap.appendChild(range);
+
+  const number = el('input', 'models-field__input') as HTMLInputElement;
+  number.type = 'number';
+  number.min = '0';
+  number.step = '1';
+  number.value = String(value);
+  number.setAttribute('aria-label', `Tensor split weight for ${deviceId}`);
+  number.addEventListener('change', () => {
+    const next = Number(number.value);
+    if (Number.isFinite(next) && next >= 0) onChange(next, true);
+  });
+  wrap.appendChild(number);
+  return wrap;
+}
+
+function gpusSection(model: LibraryModel, refresh: () => void): HTMLElement | null {
+  const variant = ensureLlamaVariant();
+  const hw = getModelsState().hardware;
+  const inventory = resolveLlamaDeviceInventory(
+    llamaDeviceInventory,
+    hw as unknown as Record<string, unknown>,
+    variant,
+  );
+  const cpuOnly = String(variant ?? '').toLowerCase().startsWith('cpu') && inventory.length === 0;
+  if (cpuOnly) return null;
+
+  const draft = draftFor(model.id);
+  const selected = selectedDeviceIds(draft, inventory);
+  const children: Node[] = [];
+
+  if (!inventory.length) {
+    children.push(
+      el(
+        'p',
+        'models-hint',
+        'No GPU devices reported. Use Extra llama-server args for --device until the runtime is installed.',
+      ),
+    );
+    return advancedSection('gpus', 'GPUs', ...children);
+  }
+
+  for (const device of inventory) {
+    const checked = selected.includes(device.id);
+    children.push(
+      checkboxField(formatGpuDeviceLabel(device), checked, (nextChecked) => {
+        const nextIds = toggleDeviceSelection(selected, device.id, nextChecked);
+        persistGpuSettings(model, { device: joinDeviceList(nextIds) }, nextIds.length < 2);
+        refresh();
+      }),
+    );
+  }
+
+  children.push(
+    el(
+      'p',
+      'models-hint',
+      selected.length
+        ? `First checked is first in --device. Currently ${joinDeviceList(selected)}. Leave a card unchecked to keep it free.`
+        : 'First checked is first in --device. Leave a card unchecked to keep it free.',
+    ),
+  );
+
+  if (selected.length >= 2) {
+    children.push(
+      selectField(
+        'Split mode',
+        [
+          { value: 'layer', label: 'Layer, pipeline (default)' },
+          { value: 'tensor', label: 'Tensor, experimental' },
+        ],
+        draft?.split_mode === 'tensor' ? 'tensor' : 'layer',
+        (v) => {
+          persistGpuSettings(model, { split_mode: v === 'tensor' ? 'tensor' : 'layer' });
+          refresh();
+        },
+      ),
+    );
+    if (draft?.split_mode === 'tensor') {
+      children.push(
+        el(
+          'p',
+          'models-hint models-hint--warning',
+          'Experimental. Auto-fit turns off. Keep KV cache at full precision.',
+        ),
+      );
+    }
+
+    const selectedRows = selected
+      .map((id) => inventory.find((row) => row.id === id))
+      .filter((row): row is LlamaGpuDevice => Boolean(row));
+    const customParts = parseTensorSplit(draft?.tensor_split);
+    const parts =
+      customParts.length === selectedRows.length ? customParts : vramProportionalSplit(selectedRows);
+    const percents = tensorSplitPercents(parts);
+
+    selectedRows.forEach((device, index) => {
+      children.push(
+        gpuRatioField(device.id, parts[index], percents[index] ?? 0, (value, remount) => {
+          const next = [...parts];
+          next[index] = value;
+          persistGpuSettings(model, { tensor_split: joinTensorSplit(next) });
+          if (remount) refresh();
+        }),
+      );
+    });
+    children.push(
+      el(
+        'p',
+        'models-hint',
+        `Share of the model: ${percents.map((p) => `${p}%`).join(' / ')}. Move a slider to send --tensor-split; until then llama.cpp splits by free VRAM. Values are proportions (5,5 is the same as 1,1).`,
+      ),
+    );
+  }
+
+  return advancedSection('gpus', 'GPUs', ...children);
 }
 
 /** Speculative decoding. */
@@ -857,6 +1043,9 @@ function renderLoadTab(model: LibraryModel, body: HTMLElement): void {
   };
 
   const advancedStack = el('div', 'models-advanced-stack');
+
+  const gpuBlock = gpusSection(model, refreshAfterTouch);
+  if (gpuBlock) advancedStack.appendChild(gpuBlock);
 
   advancedStack.appendChild(
     advancedSection(
@@ -1093,6 +1282,9 @@ function appendLoadedWithBlock(
       extras.push(['Draft model', settings.spec_draft_model.split(/[\/]/).pop() ?? '']);
     }
   }
+  if (settings.device) extras.push(['Devices', settings.device]);
+  if (settings.split_mode) extras.push(['Split', settings.split_mode]);
+  if (settings.tensor_split) extras.push(['Tensor split', settings.tensor_split]);
   for (const [label, value] of extras) list.appendChild(infoRow(label, value));
   block.appendChild(list);
   body.appendChild(block);

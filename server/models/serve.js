@@ -90,6 +90,7 @@ import {
   resolveLlamaServer,
   detectLlamaThinkingBudgetSupport,
   assertLlamaServerMatchesHostArch,
+  listLlamaGpuDevices,
 } from './llama-runtime.js';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -1028,6 +1029,7 @@ export async function startServe(body) {
     weightsBytes,
     draftWeightsBytes,
     libraryId: libraryId || undefined,
+    llamaDevices: await listLlamaGpuDevices(llamaServerPath, llamaVariant),
   };
   let launch = buildLlamaServerLaunch(launchOpts);
 

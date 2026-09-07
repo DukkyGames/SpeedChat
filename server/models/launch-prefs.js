@@ -38,6 +38,10 @@ const LAUNCH_SETTING_KEYS = [
   'mlock',
   'chat_template',
   'chat_template_file',
+  'device',
+  'split_mode',
+  'tensor_split',
+  'main_gpu',
 ];
 
 const PROGRESS_KEYS = ['lastLoadMs', 'lastWeightsBytes'];
@@ -78,6 +82,10 @@ const PROGRESS_KEYS = ['lastLoadMs', 'lastWeightsBytes'];
  * @property {boolean} [mlock]
  * @property {string} [chat_template]
  * @property {string} [chat_template_file]
+ * @property {string} [device]
+ * @property {string} [split_mode]
+ * @property {string} [tensor_split]
+ * @property {number} [main_gpu]
  * @property {number} [lastLoadMs]
  * @property {number} [lastWeightsBytes]
  */
@@ -230,6 +238,23 @@ export function normalizeLaunchSettings(raw, opts = {}) {
   if (typeof src.chat_template_file === 'string' && src.chat_template_file.trim()) {
     out.chat_template_file = src.chat_template_file.trim();
   }
+
+  if (typeof src.device === 'string' && src.device.trim()) {
+    const device = src.device
+      .split(',')
+      .map((token) => token.trim())
+      .filter(Boolean)
+      .join(',');
+    if (device) out.device = device;
+  }
+  if (src.split_mode === 'none' || src.split_mode === 'layer' || src.split_mode === 'tensor') {
+    out.split_mode = src.split_mode;
+  }
+  if (typeof src.tensor_split === 'string' && src.tensor_split.trim()) {
+    out.tensor_split = src.tensor_split.trim();
+  }
+  const mainGpu = finiteInt(src.main_gpu);
+  if (mainGpu != null && mainGpu >= 0) out.main_gpu = mainGpu;
 
   const extra = normalizeExtraArgs(src.extra_args);
   if (extra.length) out.extra_args = extra;

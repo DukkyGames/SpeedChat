@@ -180,6 +180,19 @@ describe('inspector-launch draft helpers', () => {
     assert.equal(settingsForDraft({ spec_type: 'none' }).spec_type, undefined);
   });
 
+  it('carries device split fields through an auto draft', () => {
+    const payload = settingsForDraft({
+      device: 'CUDA1,CUDA0',
+      split_mode: 'layer',
+      tensor_split: '5,5',
+      parallel: 1,
+    });
+    assert.equal(payload.fit_mode, undefined);
+    assert.equal(payload.device, 'CUDA1,CUDA0');
+    assert.equal(payload.split_mode, 'layer');
+    assert.equal(payload.tensor_split, '5,5');
+  });
+
   it('snapCtxPerSlot and contextSliderMax never exceed trainCtx', () => {
     assert.equal(contextSliderMax(8192), 8192);
     assert.equal(contextSliderMax(131072), 131072);

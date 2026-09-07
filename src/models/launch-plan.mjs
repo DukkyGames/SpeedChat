@@ -23,6 +23,7 @@ const MISSING_TRAIN_CTX = 8192;
 /**
  * @typedef {object} LaunchHardware
  * @property {number} [gpuVramGb]
+ * @property {number} [selectedGpuVramGb]
  * @property {number} [availableRamGb]
  * @property {number} [totalRamGb]
  * @property {string} [backend]
@@ -112,7 +113,8 @@ function backendForVariant(variant) {
  * @param {string | null | undefined} variant
  */
 export function launchBudgetBytes(hardware, variant) {
-  const gpuVramGb = Number(hardware?.gpuVramGb) || 0;
+  const selected = Number(hardware?.selectedGpuVramGb) || 0;
+  const gpuVramGb = selected > 0 ? selected : Number(hardware?.gpuVramGb) || 0;
   if (!isCpuLlamaVariant(variant) && gpuVramGb > 0) {
     const vram = gpuVramGb * GIB;
     const reserve = Math.max(0.9 * GIB, vram * 0.08);

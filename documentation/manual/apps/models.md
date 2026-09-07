@@ -41,6 +41,8 @@ The filter bar changes with the source, because target context, "Only what fits"
 
 **Library** searches Hugging Face and downloads weights into your Minnow home. **Serve** starts the bundled `llama-server` against a downloaded model and registers it as a provider automatically, so it shows up in the model picker with nothing else to configure.
 
+**Loading GGUF on more than one GPU.** The inspector Load tab has a collapsed **GPUs** section. Check the cards that should run the model: the first you check is first in `--device` (so CUDA1 then CUDA0 means check CUDA1, then CUDA0). With two or more cards checked you can pick layer split (the default) or experimental tensor split, and drag per-card ratios. One GPU stays selected until you check another, so a second card stays free for the desktop. **Loaded with** lists Devices, Split, and Tensor split after a successful load. Extra llama-server args still override these fields.
+
 **Installed** lists what is on disk so you can reclaim space later. Model files are large; they are deliberately kept out of the small-backup path described in [Where your data lives](../reference/configuration.md).
 
 ## MLX on Apple Silicon

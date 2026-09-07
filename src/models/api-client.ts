@@ -143,6 +143,8 @@ export interface LlamaServeSettings {
   spec_draft_n_min?: number;
   /** `--spec-draft-p-min`: minimum draft probability. */
   spec_draft_p_min?: number;
+  /** `--device` / `-dev`: comma-separated GGML ids, check order. */
+  device?: string;
   split_mode?: string;
   tensor_split?: string;
   main_gpu?: number;
@@ -233,6 +235,8 @@ export interface LlamaRuntimeStatus {
    * has never been loaded on this machine.
    */
   loadRateBytesPerMs?: number | null;
+  /** GPU rows from `llama-server --list-devices`, or synthesized from hardware. */
+  devices?: Array<{ id: string; name: string; memoryMiB: number; freeMiB: number | null }>;
 }
 
 export interface LlamaInstallJob {

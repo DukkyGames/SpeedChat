@@ -14,6 +14,14 @@ import {
   planLlamaLaunch,
   PREFERRED_CONTEXT_TOKENS,
 } from '../../src/models/launch-plan.mjs';
+import {
+  joinDeviceList,
+  joinTensorSplit,
+  parseTensorSplit,
+  resolveLaunchDevices,
+  selectedGpuVramGb,
+  synthesizeLlamaDevices,
+} from '../../src/models/llama-devices.mjs';
 import { computeServeProfiles } from './profiles.js';
 
 /** @typedef {import('./llama-variant.js').LlamaVariant} LlamaVariant */
@@ -71,6 +79,7 @@ function fullOffloadNGpuLayers(nGpuLayers, ggufMeta) {
  * @property {string} [split_mode]
  * @property {string} [tensor_split]
  * @property {number} [main_gpu]
+ * @property {string} [device]
  * @property {boolean} [fit]
  * @property {'auto' | 'manual'} [fit_mode]
  * @property {boolean} [no_warmup]
@@ -144,7 +153,8 @@ function mergeSettings(...layers) {
  * @param {string} variant
  */
 function fitTargetMib(hardware, variant) {
-  const gpuVramGb = Number(hardware?.gpuVramGb) || 0;
+  const selected = Number(hardware?.selectedGpuVramGb) || 0;
+  const gpuVramGb = selected > 0 ? selected : Number(hardware?.gpuVramGb) || 0;
   if (!isCpuLlamaVariant(variant) && gpuVramGb > 0) {
     const reserveGib = Math.max(0.9, gpuVramGb * 0.08);
     return Math.max(1, Math.round(reserveGib * 1024));
@@ -237,6 +247,16 @@ function effectiveLlamaSettings(merged) {
   if (typeof merged.chat_template_file === 'string' && merged.chat_template_file.trim()) {
     out.chat_template_file = merged.chat_template_file.trim();
   }
+  if (typeof merged.device === 'string' && merged.device.trim()) {
+    out.device = merged.device.trim();
+  }
+  if (merged.split_mode === 'none' || merged.split_mode === 'layer' || merged.split_mode === 'tensor') {
+    out.split_mode = merged.split_mode;
+  }
+  if (typeof merged.tensor_split === 'string' && merged.tensor_split.trim()) {
+    out.tensor_split = merged.tensor_split.trim();
+  }
+  if (merged.main_gpu != null) out.main_gpu = merged.main_gpu;
   return out;
 }
 
@@ -435,6 +455,7 @@ function manualOverBudgetWarning(opts, variant, merged, plan) {
  * @param {number} [opts.weightsBytes]
  * @param {number} [opts.draftWeightsBytes]
  * @param {string} [opts.libraryId]
+ * @param {Array<{ id: string, name?: string, memoryMiB?: number }>} [opts.llamaDevices]
  * @returns {LlamaServerLaunch}
  */
 export function buildLlamaServerLaunch(opts) {
@@ -450,6 +471,7 @@ export function buildLlamaServerLaunch(opts) {
     mmprojPath,
     ggufMeta,
     libraryId,
+    llamaDevices,
   } = opts;
 
   /** @type {LlamaServeSettings} */
@@ -473,10 +495,31 @@ export function buildLlamaServerLaunch(opts) {
   }
 
   const merged = mergeSettings(profileSettings, defaults, settings);
+  const extraArgs = normalizeExtraArgs(merged.extra_args);
+  const extraHasFlag = (flag) =>
+    extraArgs.some((token) => token === flag || token.startsWith(`${flag}=`));
+  const extraHasDevice = extraHasFlag('--device') || extraHasFlag('-dev');
+  const inventory =
+    Array.isArray(llamaDevices) && llamaDevices.length
+      ? llamaDevices
+      : synthesizeLlamaDevices(hardware, variant);
+  const resolvedDevices = resolveLaunchDevices({
+    requestedDevice: merged.device,
+    inventory,
+    extraHasDevice,
+  });
+  const launchHardware =
+    hardware && typeof hardware === 'object' ? { ...hardware } : {};
+  if (resolvedDevices.emit && resolvedDevices.ids.length) {
+    merged.device = joinDeviceList(resolvedDevices.ids);
+    const selectedVram = selectedGpuVramGb(inventory, resolvedDevices.ids);
+    if (selectedVram > 0) launchHardware.selectedGpuVramGb = selectedVram;
+  }
 
   const fitMode = merged.fit_mode === 'manual' ? 'manual' : 'auto';
   const parallel = Math.max(1, Math.trunc(Number(merged.parallel) || 1));
-  const plan = planOrPreferredFallback(opts, variant, parallel);
+  const planOpts = { ...opts, hardware: launchHardware };
+  const plan = planOrPreferredFallback(planOpts, variant, parallel);
 
   let warning = null;
   if (fitMode === 'manual') {
@@ -485,14 +528,14 @@ export function buildLlamaServerLaunch(opts) {
       delete merged.n_gpu_layers;
     }
     applyManualFit(merged);
-    warning = manualOverBudgetWarning(opts, variant, merged, plan);
+    warning = manualOverBudgetWarning(planOpts, variant, merged, plan);
   } else {
     applyAutoPlan(merged, plan);
   }
+  if (merged.split_mode === 'tensor') {
+    merged.fit = false;
+  }
 
-  const extraArgs = normalizeExtraArgs(merged.extra_args);
-  const extraHasFlag = (flag) =>
-    extraArgs.some((token) => token === flag || token.startsWith(`${flag}=`));
   const skipJinja = merged.skip_jinja === true || extraHasFlag('--no-jinja');
   const forwardedExtra = extraArgs.filter((token) => {
     if (token === '--no-jinja') return false;
@@ -566,15 +609,41 @@ export function buildLlamaServerLaunch(opts) {
     args.push('--parallel', String(parallel));
   }
 
-  if (merged.split_mode) {
-    args.push('--split-mode', merged.split_mode);
+  if (resolvedDevices.emit && !extraHasDevice) {
+    args.push('--device', joinDeviceList(resolvedDevices.ids));
   }
 
-  if (merged.tensor_split) {
-    args.push('--tensor-split', merged.tensor_split);
+  const selectedCount = resolvedDevices.emit ? resolvedDevices.ids.length : 0;
+  const splitMode =
+    merged.split_mode === 'none' || merged.split_mode === 'layer' || merged.split_mode === 'tensor'
+      ? merged.split_mode
+      : selectedCount >= 2
+        ? 'layer'
+        : '';
+  if (splitMode && selectedCount >= 2 && !extraHasFlag('--split-mode') && !extraHasFlag('-sm')) {
+    args.push('--split-mode', splitMode);
+    merged.split_mode = splitMode;
   }
 
-  if (merged.main_gpu != null) {
+  const tensorParts = parseTensorSplit(merged.tensor_split);
+  if (
+    tensorParts.length &&
+    selectedCount >= 2 &&
+    tensorParts.length === selectedCount &&
+    !extraHasFlag('--tensor-split') &&
+    !extraHasFlag('-ts')
+  ) {
+    args.push('--tensor-split', joinTensorSplit(tensorParts));
+    merged.tensor_split = joinTensorSplit(tensorParts);
+  } else if (tensorParts.length && selectedCount >= 2 && tensorParts.length !== selectedCount) {
+    warning = joinWarning(
+      warning,
+      `warning: --tensor-split has ${tensorParts.length} parts but ${selectedCount} devices; omitting the flag.`,
+    );
+    delete merged.tensor_split;
+  }
+
+  if (merged.main_gpu != null && !extraHasFlag('--main-gpu') && !extraHasFlag('-mg')) {
     args.push('--main-gpu', String(merged.main_gpu));
   }
 
@@ -655,7 +724,7 @@ export function buildLlamaServerLaunch(opts) {
       args.push('--fit-ctx', String(CONTEXT_LADDER[0]));
     }
     if (!extraHasFlag('--fit-target')) {
-      args.push('--fit-target', String(fitTargetMib(hardware, variant)));
+      args.push('--fit-target', String(fitTargetMib(launchHardware, variant)));
     }
   } else if (merged.fit === false) {
     args.push('--fit', 'off');

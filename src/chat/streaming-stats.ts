@@ -39,7 +39,7 @@ export function buildCurrentRoundUsage(
   input: StreamingStatsSnapshot,
   _now = performance.now(),
 ): Usage {
-  const { streamMeta, partialText } = input;
+  const { streamMeta, partialText, priorStatsSegments } = input;
   const roundEstimate = estimateTokensFromText(partialText);
   const live = streamMeta.usage;
 
@@ -56,8 +56,14 @@ export function buildCurrentRoundUsage(
   }
   if (out.prompt_tokens != null || out.completion_tokens != null) {
     out.total_tokens = (out.prompt_tokens ?? 0) + (out.completion_tokens ?? 0);
+    return out;
   }
-  return out;
+
+  // `round_end` flushes an empty accumulator before the next round opens. Hold
+  // the round that just finished instead of blanking the strip and the ring
+  // between every tool call.
+  const justFinished = priorStatsSegments?.[priorStatsSegments.length - 1]?.usage;
+  return justFinished ? { ...justFinished } : out;
 }
 
 /** Timing stats (TTFT, generation time, tok/s) for a stream still in flight. */

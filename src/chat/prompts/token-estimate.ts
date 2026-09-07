@@ -22,7 +22,9 @@ import {
   estimateApiMessageTokens,
   estimateApiMessagesTokens,
   resolveContextBudget,
+  SAFETY_MARGIN,
 } from '../context-budget';
+import { contextCalibratedMessageLimit } from '../context/estimate-calibration';
 import { estimateContextPolicyTrim } from '../context/apply-policy';
 import {
   resolveExpertContextForSend,
@@ -160,10 +162,17 @@ function applyBudgetTrimToHistoryTokens(
   const agentConfig = workAgent
     ? agentContextBudgetFromWorkAgent(workAgent)
     : { enforcementPolicy: DEFAULT_CONTEXT_ENFORCEMENT_POLICY };
+  const modelLimit = resolveModelLimitForEstimate(modelId, chat);
   const budgetResolved = resolveContextBudget({
     agentConfig,
-    modelLimit: resolveModelLimitForEstimate(modelId, chat),
+    modelLimit,
     reservedTokens: toolsTokens,
+    // The runner narrows this ceiling once a provider has told us how badly the
+    // character estimate undercounts for a model. Predict against the same
+    // number, or the panel promises no compression on a send that compresses.
+    effectiveLimitOverride:
+      contextCalibratedMessageLimit(modelId ?? '', modelLimit, SAFETY_MARGIN, toolsTokens) ??
+      undefined,
   });
   if (budgetResolved.effectiveLimit == null) {
     return { history: rawHistoryTokens, compressedEstimate: 0, wouldCompress: false };

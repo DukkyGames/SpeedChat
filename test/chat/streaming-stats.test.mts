@@ -60,6 +60,31 @@ describe('buildCurrentRoundUsage', () => {
     assert.equal(usage.total_tokens, 1242);
   });
 
+  test('holds the finished round while the accumulator is empty between rounds', () => {
+    // What run-turn-chat flushes at round_end: empty stream meta, no partial text.
+    const usage = buildCurrentRoundUsage({
+      streamMeta: {},
+      t0: 0,
+      tFirst: 10,
+      partialText: '',
+      priorStatsSegments: [
+        {
+          stats: {},
+          usage: { prompt_tokens: 10_000, completion_tokens: 80, total_tokens: 10_080 },
+        },
+        {
+          stats: {},
+          usage: { prompt_tokens: 11_000, completion_tokens: 60, total_tokens: 11_060 },
+        },
+      ],
+    });
+
+    // The round that just closed, not a rollup and not a blank strip.
+    assert.equal(usage.prompt_tokens, 11_000);
+    assert.equal(usage.completion_tokens, 60);
+    assert.equal(usage.total_tokens, 11_060);
+  });
+
   test('ignores completed tool-loop rounds — earlier replies are already in this prompt', () => {
     const usage = buildCurrentRoundUsage({
       streamMeta: {

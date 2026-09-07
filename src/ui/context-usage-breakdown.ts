@@ -69,8 +69,13 @@ function renderSectionRow(
     </div>`;
 }
 
+/** Same warn rule as the ring: approaching the window, or past the trim ceiling. */
+function isWarn(budget: ContextBudget): boolean {
+  return budget.willCompress || (budget.percent != null && budget.percent >= 85);
+}
+
 function renderSummary(budget: ContextBudget): string {
-  const warn = budget.percent != null && budget.percent >= 85;
+  const warn = isWarn(budget);
   const fillScale =
     budget.limit != null && budget.limit > 0
       ? Math.min(1, budget.used / budget.limit)
@@ -111,9 +116,32 @@ function renderSummary(budget: ContextBudget): string {
         </div>`
       : '';
 
+  const compressMarkScale =
+    budget.compressAtTokens != null && budget.limit > 0
+      ? Math.min(1, budget.compressAtTokens / budget.limit)
+      : null;
+  const compressMark =
+    compressMarkScale != null
+      ? `<div class="context-usage-breakdown__gauge-mark" style="--mark-scale: ${compressMarkScale.toFixed(4)}"></div>`
+      : '';
+
   const gaugePct =
     budget.percent != null
       ? `<span class="context-usage-breakdown__gauge-pct${warn ? ' is-warn' : ''}">${budget.percent}%</span>`
+      : '';
+
+  // The runner trims below the raw window, so say where that line sits — a ring
+  // that reads 92% has already started dropping turns.
+  const compressAtFoot =
+    budget.compressAtTokens != null
+      ? `<div class="context-usage-breakdown__summary-foot">
+          <span class="context-usage-breakdown__summary-foot-label">${
+            budget.willCompress ? 'Compressing above' : 'Compresses above'
+          }</span>
+          <span class="context-usage-breakdown__summary-foot-value${warn ? ' is-warn' : ''}">${formatTokens(
+            budget.compressAtTokens,
+          )}</span>
+        </div>`
       : '';
 
   return `
@@ -128,6 +156,7 @@ function renderSummary(budget: ContextBudget): string {
       <div class="context-usage-breakdown__gauge" aria-hidden="true">
         <div class="context-usage-breakdown__gauge-track">
           <div class="context-usage-breakdown__gauge-fill${warn ? ' is-warn' : ''}" style="--fill-scale: ${fillScale.toFixed(4)}"></div>
+          ${compressMark}
         </div>
         ${gaugePct}
       </div>
@@ -135,6 +164,7 @@ function renderSummary(budget: ContextBudget): string {
         <span class="context-usage-breakdown__summary-foot-label">Window</span>
         <span class="context-usage-breakdown__summary-foot-value">${formatTokens(budget.limit)}</span>
       </div>
+      ${compressAtFoot}
     </div>`;
 }
 
@@ -242,6 +272,9 @@ function renderPanelBody(budget: ContextBudget): string {
   const estimateNote = budget.isEstimate
     ? `<p class="context-usage-breakdown__note">Section sizes use characters ÷ 4. Token counts vary by model tokenizer.</p>`
     : `<p class="context-usage-breakdown__note">Used matches the last API round (prompt + reply) — the same number the metrics strip and the last chat bubble show. Section rows are scaled estimates.</p>`;
+  const compressNote = budget.willCompress
+    ? `<p class="context-usage-breakdown__note">Over the trim ceiling: the next send compresses older turns before it leaves.</p>`
+    : '';
 
   return `
     <header class="context-usage-breakdown__header">
@@ -255,6 +288,7 @@ function renderPanelBody(budget: ContextBudget): string {
     ${lastTurnLine}
     <h4 class="context-usage-breakdown__sections-title">Breakdown</h4>
     ${sectionsBlock}
+    ${compressNote}
     ${estimateNote}
   `;
 }

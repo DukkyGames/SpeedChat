@@ -71,6 +71,13 @@ function formatTooltip(budget: ContextBudget): string {
         : `Remaining: ${remaining}`,
     );
   }
+  if (budget.compressAtTokens != null) {
+    lines.push(
+      budget.willCompress
+        ? `Compressing history — over ${formatCount(budget.compressAtTokens)} tokens`
+        : `Compresses history above ${formatCount(budget.compressAtTokens)} tokens`,
+    );
+  }
   if (budget.lastTurnPromptTokens != null) {
     const parts = [`prompt ${formatCount(budget.lastTurnPromptTokens)}`];
     if (budget.lastTurnCompletionTokens != null) {
@@ -91,7 +98,8 @@ function paintRingSurface(surface: ContextUsageSurface, budget: ContextBudget): 
   if (!button || !svg) return;
 
   const percent = budget.percent ?? 0;
-  const warn = budget.percent != null && budget.percent >= WARN_PERCENT;
+  // Warn before the enforcement ceiling, and never after it.
+  const warn = budget.willCompress || (budget.percent != null && budget.percent >= WARN_PERCENT);
   button.classList.toggle('context-usage-ring--warn', warn);
   button.classList.toggle('context-usage-ring--unknown-limit', budget.limit == null);
 

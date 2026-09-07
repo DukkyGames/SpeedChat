@@ -1,4 +1,8 @@
 import { getModelRowForSelectOrCanonicalId } from '../api/models';
+import {
+  DEFAULT_CONTEXT_ENFORCEMENT_POLICY,
+  resolveContextBudget,
+} from './context-budget';
 import { contextLengthFromModelRow } from '../lib/context-length';
 import { formatModelLabel } from '../lib/format-model-label';
 import { decodeModelSelectKey, encodeModelSelectKey, findFirstSelectKeyForCanonicalModelId } from '../lib/model-select-key';
@@ -65,6 +69,14 @@ export interface ContextBudget {
   remaining: number | null;
   /** 0–100 for the ring; capped at 100; null when limit unknown. */
   percent: number | null;
+  /**
+   * Where the context enforcement policy starts trimming, in whole-prompt
+   * tokens. Same ceiling the runner applies before every send, so the ring can
+   * never promise room the next request will not get.
+   */
+  compressAtTokens: number | null;
+  /** True when the next send crosses that ceiling and history gets compressed. */
+  willCompress: boolean;
   /** False when USED is grounded in provider last-turn usage. */
   isEstimate: boolean;
   /** Provider prompt_tokens from the last completed turn, if any. */
@@ -312,6 +324,24 @@ export function resolveContextLimit(modelId: string, chat: Chat): number | null 
   return null;
 }
 
+/**
+ * The trim ceiling for a model window, in whole-prompt tokens.
+ *
+ * Derived from the enforcement module itself so the ring and the runner cannot
+ * drift apart. `reservedTokens` is 0 on purpose: the runner subtracts the tool
+ * schemas because it measures messages only, whereas `used` here is a whole
+ * prompt — provider `prompt_tokens` counts tool schemas, and so does the
+ * estimate breakdown's `tools` row.
+ */
+export function resolveCompressAtTokens(limit: number | null): number | null {
+  if (limit == null || limit <= 0) return null;
+  return resolveContextBudget({
+    agentConfig: { enforcementPolicy: DEFAULT_CONTEXT_ENFORCEMENT_POLICY },
+    modelLimit: limit,
+    reservedTokens: 0,
+  }).effectiveLimit;
+}
+
 /** Ring fill percent (0–100); null when limit unknown. */
 export function computeContextUsagePercent(used: number, limit: number | null): number | null {
   if (limit == null || limit <= 0) return null;
@@ -365,6 +395,12 @@ export function assembleContextBudget(params: {
   const limit = params.limit;
   const remaining = limit != null ? Math.max(0, limit - used) : null;
   const percent = computeContextUsagePercent(used, limit);
+  const compressAtTokens = resolveCompressAtTokens(limit);
+  // Either signal means the next send is trimmed: the measured prompt already
+  // crosses the ceiling, or the outbound estimate says the policy would fire.
+  const willCompress =
+    (compressAtTokens != null && used >= compressAtTokens) ||
+    params.estimate.historyCompressed === true;
 
   return {
     modelId: params.modelId,
@@ -373,6 +409,8 @@ export function assembleContextBudget(params: {
     used,
     remaining,
     percent,
+    compressAtTokens,
+    willCompress,
     isEstimate: apiCore == null,
     lastTurnPromptTokens,
     lastTurnCompletionTokens,

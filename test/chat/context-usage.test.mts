@@ -17,8 +17,17 @@ import {
   buildContextUsageBreakdown,
   computeContextUsagePercent,
   estimateAttachmentTokens,
+  resolveCompressAtTokens,
   resolveContextLimit,
 } from '../../src/chat/context-usage.ts';
+import {
+  DEFAULT_CONTEXT_ENFORCEMENT_POLICY,
+  resolveContextBudget,
+} from '../../src/chat/context-budget.ts';
+import {
+  recordContextEstimateBias,
+  resetContextEstimateCalibrationForTests,
+} from '../../src/chat/context/estimate-calibration.ts';
 import { contextLengthFromModelRow } from '../../src/lib/context-length.ts';
 import type { Chat } from '../../src/types.ts';
 import { computeOutboundPromptEstimateFromParts } from '../../src/chat/prompts/token-estimate-core.ts';
@@ -410,5 +419,100 @@ describe('assembleContextBudget', () => {
     assert.equal(budget.used, 67_496);
     assert.equal(budget.isEstimate, false);
     assert.equal(budget.lastTurnTotalTokens, 67_486);
+  });
+});
+
+
+/**
+ * The ring must trip on the same line the runner trims on. Anything that reads
+ * the model window raw promises room the next request will never get, because
+ * `applyContextBudget` starts dropping turns below it.
+ */
+describe('context trim ceiling', () => {
+  const estimate = computeOutboundPromptEstimateFromParts({
+    systemText: 'System prompt body',
+    history: [],
+    tools: [],
+    userRulesText: '',
+  });
+
+  function budgetAt(used: number, limit: number | null) {
+    return assembleContextBudget({
+      modelId: 'test/model',
+      modelDisplayName: 'Test Model',
+      limit,
+      estimate,
+      composerTokens: 0,
+      attachmentTokens: 0,
+      lastTurnPromptTokens: used,
+      lastTurnCompletionTokens: 0,
+      lastTurnTotalTokens: used,
+    });
+  }
+
+  test('matches the enforcement module rather than restating its margin', () => {
+    for (const limit of [8_192, 32_768, 128_000, 200_000]) {
+      const enforcement = resolveContextBudget({
+        agentConfig: { enforcementPolicy: DEFAULT_CONTEXT_ENFORCEMENT_POLICY },
+        modelLimit: limit,
+        reservedTokens: 0,
+      });
+      assert.equal(resolveCompressAtTokens(limit), enforcement.effectiveLimit);
+      assert.equal(budgetAt(1_000, limit).compressAtTokens, enforcement.effectiveLimit);
+    }
+  });
+
+  test('sits below the window, so the ring warns before 100%', () => {
+    const budget = budgetAt(1_000, 100_000);
+    assert.ok(budget.compressAtTokens != null);
+    assert.ok(budget.compressAtTokens! < 100_000);
+    assert.equal(budget.willCompress, false);
+  });
+
+  test('willCompress flips exactly at the ceiling', () => {
+    const limit = 100_000;
+    const ceiling = resolveCompressAtTokens(limit)!;
+    assert.equal(budgetAt(ceiling - 1, limit).willCompress, false);
+    assert.equal(budgetAt(ceiling, limit).willCompress, true);
+    // Still below the raw window: this is the gap that used to confuse.
+    assert.ok(budgetAt(ceiling, limit).percent! < 100);
+  });
+
+  test('an outbound estimate that already trims counts as compressing', () => {
+    const budget = assembleContextBudget({
+      modelId: 'test/model',
+      modelDisplayName: 'Test Model',
+      limit: 100_000,
+      estimate: { ...estimate, historyCompressed: true },
+      composerTokens: 0,
+      attachmentTokens: 0,
+      lastTurnPromptTokens: 1_000,
+      lastTurnCompletionTokens: 0,
+      lastTurnTotalTokens: 1_000,
+    });
+    assert.equal(budget.willCompress, true);
+  });
+
+  test('overflow calibration does not shrink the ceiling a second time', () => {
+    // The runner divides its ceiling by the observed bias because it measures
+    // characters. `used` here is provider tokens, which is what the bias exists
+    // to recover — discounting it again would double-count the same correction.
+    const limit = 100_000;
+    const before = resolveCompressAtTokens(limit);
+    try {
+      recordContextEstimateBias('test/model', 104_264, 52_000, 0);
+      assert.equal(resolveCompressAtTokens(limit), before);
+      assert.equal(budgetAt(1_000, limit).compressAtTokens, before);
+    } finally {
+      resetContextEstimateCalibrationForTests();
+    }
+  });
+
+  test('an unknown window has no ceiling and never claims compression', () => {
+    assert.equal(resolveCompressAtTokens(null), null);
+    assert.equal(resolveCompressAtTokens(0), null);
+    const budget = budgetAt(500_000, null);
+    assert.equal(budget.compressAtTokens, null);
+    assert.equal(budget.willCompress, false);
   });
 });

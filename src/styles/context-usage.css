@@ -253,6 +253,10 @@ html[data-theme$="-dark"] .context-usage-ring--warn .context-usage-ring__fill {
   color: var(--mn-fg-muted);
 }
 
+.context-usage-breakdown__summary-foot-value.is-warn {
+  color: var(--mn-warning);
+}
+
 .context-usage-breakdown__gauge {
   display: flex;
   align-items: center;
@@ -260,11 +264,22 @@ html[data-theme$="-dark"] .context-usage-ring--warn .context-usage-ring__fill {
 }
 
 .context-usage-breakdown__gauge-track {
+  position: relative;
   flex: 1;
   height: 6px;
   background: var(--mn-border);
   border-radius: 3px;
   overflow: hidden;
+}
+
+/* Where the enforcement policy starts trimming, so the bar explains itself. */
+.context-usage-breakdown__gauge-mark {
+  position: absolute;
+  inset-block: 0;
+  left: calc(var(--mark-scale, 0.9) * 100%);
+  width: 1px;
+  background: var(--mn-fg-muted);
+  opacity: 0.7;
 }
 
 .context-usage-breakdown__gauge-fill {

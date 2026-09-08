@@ -21,6 +21,7 @@ export type AttemptResult = TurnResult;
 export type TurnPhase = 'generating' | 'thinking' | 'tools';
 
 export type TurnEvent =
+  | { type: 'response_restart'; warning: string }
   | { type: 'delta'; text: string }
   | { type: 'thinking'; text: string }
   | { type: 'tool_streaming'; name: string }

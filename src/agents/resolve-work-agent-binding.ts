@@ -49,7 +49,7 @@ export async function resolveWorkAgentBinding(
     throw new WorkAgentConfigError('No model selected for this chat');
   }
 
-  if (isLibraryModelBinding(providerId, modelId)) {
+  if (providerId === 'minnow-router' || isLibraryModelBinding(providerId, modelId)) {
     return {
       agentId,
       providerId,

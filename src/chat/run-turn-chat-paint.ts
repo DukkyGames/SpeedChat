@@ -42,6 +42,7 @@ export type ChatTurnThoughtController = Pick<ThoughtBubbleController, 'appendRea
   endReasoningPhase?: ThoughtBubbleController['endReasoningPhase'];
   setAssistantWrap?: ThoughtBubbleController['setAssistantWrap'];
   resetStreamPhaseHints?: ThoughtBubbleController['resetStreamPhaseHints'];
+  resetFailedResponse?: ThoughtBubbleController['resetFailedResponse'];
   setThinkingElapsed?: ThoughtBubbleController['setThinkingElapsed'];
 };
 
@@ -399,6 +400,18 @@ export function createChatTurnEventPainter(host: ChatTurnPaintHost): ChatTurnEve
 
   const onEvent = (event: TurnEvent): void => {
     host.onActivity?.();
+    if (event.type === 'response_restart') {
+      pendingDelta = null; pendingThinking = null;
+      lastDelta = ''; lastThinking = ''; lastPaintedThinking = '';
+      clearToolStartIndicator();
+      host.thoughtController.resetFailedResponse?.();
+      scheduleMarkdown(host.bubble, '', host.cursor, { immediate: true });
+      const warning = document.createElement('p');
+      warning.className = 'router-message'; warning.setAttribute('role', 'status');
+      warning.textContent = event.warning;
+      host.wrap.prepend(warning);
+      return;
+    }
     if (event.type === 'delta') {
       lastDelta = event.text;
       pendingDelta = event.text;

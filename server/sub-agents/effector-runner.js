@@ -432,6 +432,7 @@ function createServerRunnerDeps(postChatCompletions) {
     postChatCompletions,
     runHeadlessToolBatch: async () => [],
     resolveProvider: async (providerId) => {
+      if (providerId === 'minnow-router') return { id: providerId, label: 'Router', baseUrl: '', apiKind: 'openai-v1' };
       const row = await getProvider(providerId);
       return {
         id: row.id,

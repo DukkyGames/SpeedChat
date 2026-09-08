@@ -3,6 +3,7 @@ import { readConfigJson } from '../config/store.js';
 import { listProviders } from '../providers/store.js';
 import { resolveFallbackChain } from '../generations/fallback.js';
 import { pumpUpstream } from '../generations/upstream.js';
+import { pumpRouterGeneration } from '../model-routers/generation.js';
 import {
   addLocalSubscriber,
   cancel as cancelGeneration,
@@ -162,7 +163,8 @@ async function startInProcessCompletion(providerId, body, options = {}) {
   }
 
   const stream = iterateLocalSse(state);
-  pumpUpstream({ state });
+  if (id === 'minnow-router') pumpRouterGeneration(state);
+  else pumpUpstream({ state });
   return { state, stream };
 }
 

@@ -2,7 +2,7 @@
 
 This is where you set up what the agents run on: what your machine can handle, what you have downloaded, what is serving, which endpoints Minnow talks to, which model does which job, and what it all costs.
 
-You come here to configure, then go back to Code and work. Open it from the app rail; it fills the main stage with ten sections.
+You come here to configure, then go back to Code and work. Open it from the app rail.
 
 | Section | What it is |
 |---------|------------|
@@ -13,11 +13,12 @@ You come here to configure, then go back to Code and work. Open it from the app 
 | **Voice** | Speech-to-text and text-to-speech models |
 | **Providers** | Endpoints and encrypted API keys |
 | **Routing** | Which model handles which job |
+| **Routers** | Shared capacity, sticky chat assignments, and model failover |
 | **Sampler** | Temperature and sampling defaults |
 | **Thinking** | Reasoning mode and budget |
 | **Usage & cost** | Token totals and spend |
 
-The last five also appear under **Models** in the Settings sidebar — same panels, two doors. Settings search finds them either way.
+Providers, Routing, Sampler, Thinking, and Usage & cost also appear under **Models** in the Settings sidebar. Routers has its own page in Models.
 
 ## Local Server
 
@@ -85,6 +86,20 @@ Two bindings are worth setting deliberately:
 - **Goal evaluator.** This one judges whether your `/goal` condition is genuinely met. A weak evaluator rubber-stamps broken work, which is worse than no goal at all.
 
 A common arrangement is a fast local model for routine turns and a capable cloud model bound to review, research and evaluation.
+
+## Routers
+
+Open **Models → Routers**, choose **New router**, and add models from your configured providers. Each entry has an enabled toggle and a **Slots** limit for concurrent generations. The same provider/model pair cannot appear twice in one router. Reorder entries with the arrow buttons or **Alt+↑ / Alt+↓** while a row has keyboard focus, then **Save configuration**.
+
+**Priority** prefers the first eligible model with free capacity. **Balance by rank** assigns new chats using rank weights: a three-entry router uses weights 3, 2, and 1. Once assigned, a chat keeps that model. If its model is busy, the chat waits in a FIFO queue even when another entry has capacity. If all entries are busy, new chats queue too. Streaming and non-streaming generations each occupy one slot.
+
+Routers appear in the normal model picker with a **Router** label. **Default for new chats** sets the workspace's default router; existing chat bindings stay unchanged. A chat's picker shows the router and its current provider/model assignment after a request starts.
+
+The live view shows active and queued chats, their target models, and slot usage. Inspect a model card for average generation latency, error rate, reported tokens, and estimated cost when provider pricing and token counts are available. The chat's override selector pins an entry until you choose **Router assignment** to clear it. An override can fail over if its model fails; the replacement becomes sticky while the override remains marked until cleared.
+
+Provider errors and unavailable models trigger failover. A response interrupted partway through restarts on another eligible entry with a visible warning; failed text, reasoning, and incomplete tool calls are discarded. Each request attempts a provider/model pair at most once. **Stop** cancels the request without failover. If no eligible entries remain, Minnow asks you to check the router's entries and provider configuration.
+
+Router configurations, defaults, and chat assignments are saved per workspace. Activity and telemetry last for the current server session. On narrow screens the activity and model views stack; reduced-motion settings replace moving connections with static indicators.
 
 ## Sampler
 

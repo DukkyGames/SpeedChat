@@ -302,6 +302,12 @@ export function createChatTranscriptStore(
       scheduleSaveSessions();
     },
     observe(event) {
+      if (event.type === 'response_restart') {
+        round = emptyRound(round.index);
+        thinkingTracker.finalizeRound();
+        thoughtController?.resetFailedResponse();
+        return;
+      }
       if (event.type === 'round_start') {
         if (event.index > 0) {
           thoughtController?.consumePersistedSegments();

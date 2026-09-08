@@ -50,6 +50,7 @@ import { isChatAppForeground } from '../ui/chat-mount';
 import { setStatus } from '../ui/status';
 import { ensureTokenLedger } from '../usage/token-ledger';
 import { getWorkspacePath } from './workspace';
+import { getRouterConfigSync } from '../models/routers';
 import { MAX_GOAL_CONDITION_CHARS } from '../chat/goal/parse-command';
 import {
   INITIAL_LOOP_AUTO_DELAY_MS,
@@ -2040,6 +2041,8 @@ export function registerSessionPersistenceShutdownHandler(): void {
 export function createAndActivateChat(modelId: string): Chat {
   const state = requireSessionState();
   const chat = createEmptyChatObject(modelId);
+  const routerDefault = getRouterConfigSync().defaultRouterId;
+  if (routerDefault) { chat.providerId = 'minnow-router'; chat.modelId = routerDefault; }
   state.chats.unshift(chat);
   state.activeId = chat.id;
   markSessionScalarsDirty();

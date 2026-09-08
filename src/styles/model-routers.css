@@ -1,0 +1,39 @@
+.router-panel { padding: 24px; color: var(--mn-fg); max-width: 1400px; margin: 0 auto; }
+.router-panel h2 { font-size: 1.2rem; margin: 0 0 16px; }
+.router-panel h3 { font-size: 1rem; margin: 0 0 12px; }
+.router-toolbar, .router-fields { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.router-toolbar h2 { margin: 0 auto 0 0; }
+.router-panel button, .router-panel select, .router-panel input { font: inherit; color: var(--mn-fg); background: var(--mn-bg); border: 1px solid var(--mn-border); border-radius: 6px; min-height: 36px; padding: 6px 10px; max-width: 100%; }
+.router-panel button { cursor: pointer; }
+.router-panel button:hover { background: var(--mn-surface-elevated); }
+.router-panel button:disabled { opacity: .5; cursor: default; }
+.router-panel :focus-visible { outline: 2px solid var(--mn-accent); outline-offset: 2px; }
+.router-panel label { display: flex; align-items: center; gap: 8px; color: var(--mn-fg-muted); font-size: .85rem; }
+.router-panel input[type=checkbox] { accent-color: var(--mn-accent); }
+.router-panel input[type=number] { width: 64px; }
+.router-panel p { color: var(--mn-fg-muted); max-width: 75ch; line-height: 1.5; }
+.router-message { min-height: 1.5em; }
+.router-editor { padding-bottom: 24px; border-bottom: 1px solid var(--mn-border); }
+.router-editor > button { margin-right: 8px; }
+.router-configuration summary { cursor: pointer; padding: 10px 0; }
+.router-configuration > button { margin-right: 8px; }
+.router-entry-list { list-style: none; padding: 0; }
+.router-entry-list li { display: grid; grid-template-columns: 24px minmax(100px, 1fr) minmax(140px, 2fr) auto auto auto auto auto; align-items: center; gap: 8px; padding: 10px 0; border-top: 1px solid var(--mn-border); }
+.router-rank { color: var(--mn-fg-muted); font-variant-numeric: tabular-nums; }
+.router-live { margin-top: 24px; }
+.router-graph { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 100px; position: relative; }
+.router-chats, .router-nodes { z-index: 1; min-width: 0; }
+.router-chat, .router-node { display: flex; flex-direction: column; gap: 8px; padding: 14px; margin-bottom: 14px; border: 1px solid var(--mn-border); border-radius: 6px; background: var(--mn-bg); overflow-wrap: anywhere; }
+.router-chat span, .router-node span { font-size: .85rem; color: var(--mn-fg-muted); }
+.router-node > button { text-align: left; font-weight: 600; }
+.router-node progress { width: 100%; height: 6px; accent-color: var(--mn-accent); }
+.router-telemetry { font-size: .85rem; line-height: 1.6; padding-top: 10px; border-top: 1px solid var(--mn-border); }
+.router-telemetry[popover] { position: fixed; inset: auto; margin: 0; width: min(380px, calc(100vw - 32px)); box-sizing: border-box; padding: 16px; color: var(--mn-fg); background: var(--mn-bg); border: 1px solid var(--mn-border-strong); border-radius: 6px; }
+.router-connections { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.router-connections path { fill: none; stroke: var(--mn-border-strong); stroke-width: 2; }
+.router-connections .is-active { stroke: var(--mn-accent); stroke-dasharray: 4 12; animation: router-request 1.5s linear infinite; }
+.router-connections .is-queued { stroke-dasharray: 3 4; }
+@keyframes router-request { to { stroke-dashoffset: -32; } }
+@media (max-width: 900px) { .router-entry-list li { display: flex; flex-wrap: wrap; } .router-entry-list select { flex: 1 1 180px; } .router-graph { grid-template-columns: 1fr; gap: 20px; } .router-connections { display: none; } .router-panel { padding: 16px; } }
+@media (prefers-reduced-motion: reduce) { .router-connections .is-active { animation: none; stroke-dasharray: none; } }
+@media (pointer: coarse) { .router-panel button, .router-panel select, .router-panel input { min-height: 44px; } }

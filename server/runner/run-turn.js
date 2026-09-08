@@ -696,6 +696,7 @@ export async function runTurn(options) {
         emit(onEvent, { type: 'delta', text });
       },
       onTurnEvent: (event) => {
+        if (event.type === 'response_restart') { lastDelta = ''; lastThinking = ''; lastStreamingTool = ''; }
         emit(onEvent, event);
       },
       onRoundBoundary:

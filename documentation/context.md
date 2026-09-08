@@ -724,6 +724,8 @@ Scoped suites: see `package.json` (`test:memory`, `test:brain`, `test:product-wi
 
 ## Key files
 
+**Model routers:** `server/model-routers/` owns workspace-scoped router configuration, persisted sticky assignments/overrides, smooth rank-weighted or priority selection, and FIFO admission keyed by provider/model. Data lives in `~/.minnow/model-routers/<sha256-workspace-path>.json`; writes use atomic replacement and revision checks. Activity/telemetry is session-only. `/api/generations/routers` supports GET/PUT configuration; `/:routerId/activity` returns live counters/assignments/availability; POST `/:routerId/override` changes a chat override. The synthetic picker provider `minnow-router` carries the router id as `model`; both HTTP and in-process generation bindings dispatch to `pumpRouterGeneration`. Each attempt uses the existing provider transport with same-candidate retries disabled. A `minnow_router` SSE control payload identifies assignments and resets failed partial responses before failover; the shared runner emits `response_restart`, clearing prose, reasoning, and tool accumulators, and the chat painter displays a warning. Providers are checked against live catalogs and persisted capabilities; queued entries are periodically rechecked. `src/models/routers.ts` caches workspace defaults for synchronous new-chat creation, while existing chats retain their explicit binding. Models → Routers is a lazy section (`src/ui/models/routers-panel.ts`) with editable rank, live capacity graph, telemetry, and overrides. Coverage: `test/model-routers/`.
+
 | File | Role |
 |------|------|
 | [`server.js`](../server.js) | Vite + API middleware |

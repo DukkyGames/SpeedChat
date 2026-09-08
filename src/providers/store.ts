@@ -155,6 +155,7 @@ export async function resolveProvider(
   chatProviderId?: string,
   options?: ResolveProviderOptions,
 ): Promise<ProviderPublic> {
+  if (chatProviderId === 'minnow-router') return { id: 'minnow-router', label: 'Router', baseUrl: '', apiKind: 'openai-v1', enabled: true, hasApiKey: false, hasBearer: false, supportsModelLoadUnload: false };
   const { providers } = await listProviders();
   const enabled = providers.filter((p) => p.enabled !== false);
   const want = chatProviderId?.trim();

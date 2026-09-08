@@ -262,6 +262,7 @@
         "MLX on Apple Silicon",
         "Providers",
         "Routing",
+        "Routers",
         "Sampler",
         "Thinking",
         "Usage & cost",
@@ -271,7 +272,7 @@
         "Related"
       ],
       "section": "Apps",
-      "hash": "e6a2411c24875afe422671e084d2350a3c46072b5e6670a3ac6e65fd5d5a20fa"
+      "hash": "e79c414a988413d551bcea6070f6f468777f9938f79ae8ba7fd4f0969edc9bf9"
     },
     {
       "path": "documentation/manual/apps/issues.md",
@@ -345,7 +346,7 @@
         "Related"
       ],
       "section": "Orchestrate",
-      "hash": "5239faec8c653d4452ef1f8997386da5b5f9bf7fbeed293a52b5ce70442298ac"
+      "hash": "f631c5bb5527911abb29eb348af9c9a8157d4afd344540128a530adec6872a49"
     },
     {
       "path": "documentation/manual/orchestrate/super-plan.md",

@@ -181,7 +181,7 @@ function shouldRetrySameCandidate(classified, canFailover) {
 /**
  * @param {{ state: import('./store.js').GenerationState }} params
  */
-async function pumpUpstreamAsync({ state }) {
+export async function pumpUpstreamAsync({ state }) {
   const config = (await readConfigJson('config.json')) ?? {};
   const fallbackConfig = readFallbackChainsConfig(config);
   const { idleMs, maxMs } = await readGenerationUpstreamTimeouts();
@@ -306,6 +306,7 @@ async function pumpUpstreamAsync({ state }) {
     for (
       let attempt = 1;
       result.outcome === 'retry' &&
+      !state.routerAttempt &&
       result.retrySameCandidate === true &&
       attempt < MAX_SAME_CANDIDATE_ATTEMPTS &&
       state.status !== 'cancelled';

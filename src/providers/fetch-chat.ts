@@ -16,6 +16,7 @@ import type { ChatCompletionChunk } from '../types';
 import { retryOnceOnTransientFetch } from '../lib/transient-fetch-retry';
 import type { ProviderPublic } from './types';
 import { resolveProviderEndpoints } from './resolve';
+import { noteRouterAssignment } from '../models/routers';
 
 export interface PostChatOptions {
   stream?: boolean;
@@ -68,6 +69,11 @@ export async function postChatCompletions(
       ).generationId;
   options.onGenerationId?.(generationId);
 
+  if (signal.aborted) {
+    await cancelGeneration(generationId);
+    throw new DOMException('Aborted', 'AbortError');
+  }
+
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
@@ -92,6 +98,13 @@ export async function postChatCompletions(
         {
           onChunk: (text) => {
             if (closed) return;
+            if (provider.id === 'minnow-router' && options.chatId) {
+              try {
+                const payload = JSON.parse(text.trim().replace(/^data:\s*/, ''));
+                const route = payload.minnow_router;
+                if (route) noteRouterAssignment(options.chatId, route.providerId, route.modelId, route.routerId);
+              } catch {}
+            }
             sawBytes = true;
             controller.enqueue(new TextEncoder().encode(text));
           },

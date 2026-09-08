@@ -1,5 +1,7 @@
 ﻿import { reportBackgroundError } from '../boot/report-background-error';
 import { isChatsWorkspacePath } from '../lib/chats-workspace';
+import { decodeModelSelectKey } from '../lib/model-select-key';
+import { routerChatModelLabel, getRouterConfigSync, saveRouterConfig } from '../models/routers';
 import { normalizeWorkspacePath } from '../lib/normalize-workspace-path';
 import { isChatStreaming } from '../chat/streaming-state';
 import { stopGeneration } from '../chat/stop-generation';
@@ -323,8 +325,15 @@ export function syncModelSelectForActiveChat(): void {
 export { onActiveChatModelChange };
 
 /** Global default model changed via header picker or menubar chip. */
-export function onModelSelectChange(): void {
+export async function onModelSelectChange(): Promise<void> {
   const sel = document.getElementById('modelSelect') as HTMLSelectElement;
+  const config = getRouterConfigSync();
+  const selected = decodeModelSelectKey(sel.value);
+  const routerId = selected?.providerId === 'minnow-router' ? selected.modelId : null;
+  if (routerId !== config.defaultRouterId) {
+    try { await saveRouterConfig({ ...config, defaultRouterId: routerId }); }
+    catch (error) { setStatus('err', (error as Error).message); return; }
+  }
   persistDefaultModelValue(sel.value);
   updateModelStateDot(sel.value);
   updateModelLoadUnloadButtons();
@@ -427,7 +436,7 @@ function buildChatRow(
   const isActive = highlightChatId != null && chat.id === highlightChatId;
   const isSelected = selectedChatIds.has(chat.id);
   const inGroup = options?.inGroup === true;
-  const modelLabel = chat.modelId || 'No model selected';
+  const modelLabel = routerChatModelLabel(chat) || 'No model selected';
   const codeChangeAria = inGroup ? '' : formatChatItemCodeChangeAria(chat);
   const isDraftOnly = getChatMessageCount(chat) === 0 && hasComposerDraft(chat);
   const displayName = isDraftOnly ? formatDraftChatSidebarName(chat) : chat.name;
@@ -564,7 +573,7 @@ function buildChatRow(
   if (!inGroup) {
     const modelEl = document.createElement('div');
     modelEl.className = 'chat-item-model';
-    modelEl.textContent = chat.modelId || '\u2014';
+    modelEl.textContent = routerChatModelLabel(chat) || '\u2014';
 
     row.appendChild(modelEl);
     if (hasCodeChangeTotals(chat.codeChangeTotals)) {
@@ -802,7 +811,7 @@ export function wireSidebarNewGroupButton(): void {
 export function syncComposerDraftSidebarLabels(chat: Chat): void {
   if (getChatMessageCount(chat) !== 0 || !hasComposerDraft(chat)) return;
   const displayName = formatDraftChatSidebarName(chat);
-  const modelLabel = chat.modelId || 'No model selected';
+  const modelLabel = routerChatModelLabel(chat) || 'No model selected';
   const rows = document.querySelectorAll<HTMLElement>(
     `.chat-item-row[data-chat-id="${chat.id}"]`,
   );
@@ -837,7 +846,7 @@ function syncChatRow(
   const isActive = highlightChatId != null && chat.id === highlightChatId;
   const isSelected = selectedChatIds.has(chat.id);
   const inGroup = options?.inGroup === true;
-  const modelLabel = chat.modelId || 'No model selected';
+  const modelLabel = routerChatModelLabel(chat) || 'No model selected';
   const codeChangeAria = inGroup ? '' : formatChatItemCodeChangeAria(chat);
   const isDraftOnly = getChatMessageCount(chat) === 0 && hasComposerDraft(chat);
   const displayName = isDraftOnly ? formatDraftChatSidebarName(chat) : chat.name;
@@ -869,7 +878,7 @@ function syncChatRow(
   }
 
   const modelEl = row.querySelector<HTMLElement>('.chat-item-model');
-  if (modelEl) modelEl.textContent = chat.modelId || '\u2014';
+  if (modelEl) modelEl.textContent = routerChatModelLabel(chat) || '\u2014';
 
   let statsEl = row.querySelector<HTMLElement>('.chat-item-stats');
   if (!inGroup && hasCodeChangeTotals(chat.codeChangeTotals)) {

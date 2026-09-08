@@ -117,6 +117,8 @@ export function validateBugsState(raw) {
 }
 
 const TAXONOMY_SLUG_RE = /^[a-z][a-z0-9_]*$/;
+const TAXONOMY_COLOR_RE = /^(var\(--mn-[a-z0-9-]+\)|#[0-9a-fA-F]{3,8})$/;
+const ISSUE_TYPE_SEED_REVISION = 2;
 const ISSUE_STATUS_ROLES = new Set([
   'triage',
   'backlog',
@@ -128,14 +130,21 @@ const ISSUE_STATUS_ROLES = new Set([
   'canceled',
 ]);
 
+function isTaxonomyColor(value) {
+  return typeof value === 'string' && TAXONOMY_COLOR_RE.test(value.trim());
+}
+
 export function defaultIssuesTaxonomy() {
   return {
     version: 1,
+    typeSeedRevision: ISSUE_TYPE_SEED_REVISION,
     types: [
-      { id: 'bug', label: 'Bug', order: 0 },
-      { id: 'task', label: 'Task', order: 1 },
-      { id: 'idea', label: 'Idea', order: 2 },
-      { id: 'note', label: 'Note', order: 3 },
+      { id: 'bug', label: 'Bug', order: 0, color: 'var(--mn-danger)' },
+      { id: 'task', label: 'Task', order: 1, color: 'var(--mn-accent)' },
+      { id: 'idea', label: 'Idea', order: 2, color: 'var(--mn-warning)' },
+      { id: 'note', label: 'Note', order: 3, color: 'var(--mn-fg-muted)' },
+      { id: 'feature', label: 'Feature', order: 4, color: 'var(--mn-label-fig)' },
+      { id: 'improvement', label: 'Improvement', order: 5, color: 'var(--mn-label-kelp)' },
     ],
     statuses: [
       { id: 'triage', label: 'Triage', order: 0, role: 'triage', boardVisible: true },
@@ -206,7 +215,14 @@ function validateTaxonomyItemList(kind, items) {
     }
     seen.add(id);
     const item = { id, label, order };
-    if (typeof raw.color === 'string' && raw.color.trim()) item.color = raw.color.trim();
+    if (typeof raw.color === 'string' && raw.color.trim()) {
+      const color = raw.color.trim();
+      if (!isTaxonomyColor(color)) {
+        errors.push(`Unknown ${kind.slice(0, -1)} color "${color}"`);
+      } else {
+        item.color = color;
+      }
+    }
     if (kind === 'statuses') {
       if (typeof raw.role === 'string' && raw.role.trim()) {
         const role = raw.role.trim();
@@ -269,6 +285,10 @@ export function validateIssuesTaxonomy(raw, options = {}) {
   }
 
   const next = { version: 1, types, statuses, priorities };
+  const seedRev = row.typeSeedRevision;
+  if (typeof seedRev === 'number' && Number.isFinite(seedRev) && seedRev >= 1) {
+    next.typeSeedRevision = Math.floor(seedRev);
+  }
   if (options.previous && Array.isArray(options.issues)) {
     const removed = collectRemovedTaxonomyIds(options.previous, next);
     for (const id of removed.type) {
@@ -292,6 +312,31 @@ export function validateIssuesTaxonomy(raw, options = {}) {
   }
 
   return next;
+}
+
+/** Append Feature / Improvement once for catalogs that predate those built-in types. */
+export function seedDefaultIssueTypes(taxonomy) {
+  const revision = typeof taxonomy?.typeSeedRevision === 'number' ? taxonomy.typeSeedRevision : 1;
+  if (revision >= ISSUE_TYPE_SEED_REVISION) {
+    if (taxonomy.typeSeedRevision) return taxonomy;
+    return { ...taxonomy, typeSeedRevision: revision };
+  }
+  const defaults = defaultIssuesTaxonomy();
+  const nextTypes = [...taxonomy.types];
+  const seen = new Set(nextTypes.map((row) => row.id));
+  let order = nextTypes.reduce((max, row) => Math.max(max, row.order), -1);
+  for (const seed of defaults.types) {
+    if (seen.has(seed.id)) continue;
+    if (seed.id !== 'feature' && seed.id !== 'improvement') continue;
+    order += 1;
+    nextTypes.push({ ...seed, order });
+    seen.add(seed.id);
+  }
+  return {
+    ...taxonomy,
+    typeSeedRevision: ISSUE_TYPE_SEED_REVISION,
+    types: sortTaxonomyByOrder(nextTypes),
+  };
 }
 
 export const ISSUES_COMPAT_VERSION = 2;

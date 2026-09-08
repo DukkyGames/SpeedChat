@@ -568,6 +568,10 @@
   color: var(--mn-fg-muted);
 }
 
+.issues-new-form__prop-btn.issues-type-chip[style*='--issues-chip-color'] .issues-type-chip__icon {
+  color: var(--issues-chip-color);
+}
+
 .issues-new-form__prop-btn.issues-priority-chip {
   width: 100%;
   font-size: 13px;
@@ -1628,6 +1632,18 @@
   background: color-mix(in oklch, var(--mn-fg) 6%, var(--mn-bg));
 }
 
+.issues-type-chip--feature {
+  color: var(--mn-label-fig);
+  border-color: color-mix(in oklch, var(--mn-label-fig) 35%, var(--mn-border));
+  background: color-mix(in oklch, var(--mn-label-fig) 10%, var(--mn-bg));
+}
+
+.issues-type-chip--improvement {
+  color: var(--mn-label-kelp);
+  border-color: color-mix(in oklch, var(--mn-label-kelp) 35%, var(--mn-border));
+  background: color-mix(in oklch, var(--mn-label-kelp) 10%, var(--mn-bg));
+}
+
 .issues-status-chip {
   display: inline-flex;
   align-items: center;
@@ -1694,6 +1710,7 @@
 .issues-priority-chip[style*='--issues-chip-color'] {
   border-color: color-mix(in oklch, var(--issues-chip-color) 35%, var(--mn-border));
   color: var(--issues-chip-color);
+  background: color-mix(in oklch, var(--issues-chip-color) 10%, var(--mn-bg));
 }
 
 .issues-priority-chip {
@@ -2258,7 +2275,10 @@
 .issues-detail__prop.issues-type-chip.issues-type-chip--bug,
 .issues-detail__prop.issues-type-chip.issues-type-chip--task,
 .issues-detail__prop.issues-type-chip.issues-type-chip--idea,
-.issues-detail__prop.issues-type-chip.issues-type-chip--note {
+.issues-detail__prop.issues-type-chip.issues-type-chip--note,
+.issues-detail__prop.issues-type-chip.issues-type-chip--feature,
+.issues-detail__prop.issues-type-chip.issues-type-chip--improvement,
+.issues-detail__prop.issues-type-chip[style*='--issues-chip-color'] {
   border-color: var(--mn-border);
   background: color-mix(in oklch, var(--mn-fg) 4%, var(--mn-bg));
   color: var(--mn-fg);
@@ -2278,6 +2298,14 @@
 
 .issues-detail__prop.issues-type-chip--note .issues-type-chip__icon {
   color: var(--mn-fg-muted);
+}
+
+.issues-detail__prop.issues-type-chip--feature .issues-type-chip__icon {
+  color: var(--mn-label-fig);
+}
+
+.issues-detail__prop.issues-type-chip--improvement .issues-type-chip__icon {
+  color: var(--mn-label-kelp);
 }
 
 .issues-detail__prop.issues-type-chip[style*='--issues-chip-color'] .issues-type-chip__icon {

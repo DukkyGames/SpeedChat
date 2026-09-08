@@ -259,8 +259,8 @@ const SETTINGS_FIELD_CATALOG_ALL: SettingsFieldEntry[] = [
   field('apps.optional.compare', 'Compare app', 'apps', 'apps'),
   field('apps.optional.email', 'Email app', 'apps', 'apps'),
   field('apps.issues.types', 'Issue types', 'apps', 'issues', {
-    keywords: ['issue types', 'bug', 'task', 'idea', 'taxonomy'],
-    description: 'Customize issue type labels and ids.',
+    keywords: ['issue types', 'bug', 'task', 'idea', 'feature', 'improvement', 'taxonomy', 'color'],
+    description: 'Customize issue type labels, ids, icons, and colors.',
   }),
   field('apps.issues.statuses', 'Issue statuses', 'apps', 'issues', {
     keywords: ['issue statuses', 'workflow', 'board columns', 'triage', 'review'],

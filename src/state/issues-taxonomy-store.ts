@@ -7,6 +7,7 @@ import { getIssuesTaxonomy, putIssuesTaxonomy } from '../config/api-client.ts';
 import { isServerStorageMode } from '../config/storage-mode.ts';
 import {
   createDefaultIssuesTaxonomy,
+  seedDefaultIssueTypes,
   validateIssuesTaxonomy,
   type IssuesTaxonomy,
 } from '../issues/taxonomy.ts';
@@ -39,10 +40,20 @@ export function isIssuesTaxonomyLoaded(): boolean {
 
 function parseTaxonomy(raw: unknown): IssuesTaxonomy {
   try {
-    return validateIssuesTaxonomy(raw);
+    return seedDefaultIssueTypes(validateIssuesTaxonomy(raw));
   } catch {
     return createDefaultIssuesTaxonomy();
   }
+}
+
+/** Persist when Feature/Improvement seed ran so the revision is not applied again. */
+function persistIfSeeded(before: unknown, after: IssuesTaxonomy): void {
+  const prevRev =
+    before && typeof before === 'object' && 'typeSeedRevision' in before
+      ? (before as { typeSeedRevision?: unknown }).typeSeedRevision
+      : undefined;
+  if (after.typeSeedRevision === prevRev) return;
+  void saveIssuesTaxonomyNow();
 }
 
 /** Load taxonomy from API or localStorage; seed defaults when missing. */
@@ -52,6 +63,7 @@ export async function loadIssuesTaxonomyFromStorage(): Promise<void> {
       const raw = await getIssuesTaxonomy();
       taxonomyState = raw !== null ? parseTaxonomy(raw) : createDefaultIssuesTaxonomy();
       taxonomyLoaded = true;
+      if (raw !== null) persistIfSeeded(raw, taxonomyState);
       return;
     } catch {
       taxonomyState = createDefaultIssuesTaxonomy();
@@ -65,8 +77,10 @@ export async function loadIssuesTaxonomyFromStorage(): Promise<void> {
 
   try {
     const raw = localStorage.getItem(TAXONOMY_STORAGE_KEY);
-    taxonomyState = raw ? parseTaxonomy(JSON.parse(raw)) : createDefaultIssuesTaxonomy();
+    const parsedJson = raw ? JSON.parse(raw) : null;
+    taxonomyState = parsedJson ? parseTaxonomy(parsedJson) : createDefaultIssuesTaxonomy();
     taxonomyLoaded = true;
+    if (parsedJson) persistIfSeeded(parsedJson, taxonomyState);
   } catch {
     taxonomyState = createDefaultIssuesTaxonomy();
     taxonomyLoaded = true;

@@ -10,8 +10,10 @@ import {
   DEFAULT_ISSUE_STATUS_ICONS,
   DEFAULT_ISSUE_TYPE_ICONS,
   createIssueStatusChip,
+  createIssueTypeChip,
   isIssueTypeIconClass,
   resolveIssueStatusIcon,
+  resolveIssueTypeColor,
   resolveIssueTypeIcon,
 } from '../../src/issues/type-icons.ts';
 
@@ -22,6 +24,11 @@ describe('issue type icons', () => {
     assert.equal(taxonomy.types.find((t) => t.id === 'task')?.icon, DEFAULT_ISSUE_TYPE_ICONS.task);
     assert.equal(taxonomy.types.find((t) => t.id === 'idea')?.icon, DEFAULT_ISSUE_TYPE_ICONS.idea);
     assert.equal(taxonomy.types.find((t) => t.id === 'note')?.icon, DEFAULT_ISSUE_TYPE_ICONS.note);
+    assert.equal(taxonomy.types.find((t) => t.id === 'feature')?.icon, DEFAULT_ISSUE_TYPE_ICONS.feature);
+    assert.equal(
+      taxonomy.types.find((t) => t.id === 'improvement')?.icon,
+      DEFAULT_ISSUE_TYPE_ICONS.improvement,
+    );
   });
 
   it('resolves stored icons and falls back for unknown custom types', () => {
@@ -39,6 +46,29 @@ describe('issue type icons', () => {
       resolveIssueTypeIcon('spike', { id: 'spike', label: 'Spike', order: 0 }),
       'fi-sr-box',
     );
+  });
+
+  it('applies stored and default type colors on chips', () => {
+    const win = new Window({ url: 'http://localhost/' });
+    globalThis.document = win.document as unknown as Document;
+    try {
+      const feature = createIssueTypeChip('feature', {
+        id: 'feature',
+        label: 'Feature',
+        order: 4,
+      });
+      assert.equal(resolveIssueTypeColor('feature'), 'var(--mn-label-fig)');
+      assert.equal(feature.style.getPropertyValue('--issues-chip-color'), 'var(--mn-label-fig)');
+      const custom = createIssueTypeChip('spike', {
+        id: 'spike',
+        label: 'Spike',
+        order: 0,
+        color: 'var(--mn-success)',
+      });
+      assert.equal(custom.style.getPropertyValue('--issues-chip-color'), 'var(--mn-success)');
+    } finally {
+      win.close();
+    }
   });
 
   it('rejects icons outside the picker catalog', () => {

@@ -16,7 +16,19 @@ export const DEFAULT_ISSUE_TYPE_ICONS = {
   task: 'fi-sr-list-check',
   idea: 'fi-sr-bulb',
   note: 'fi-sr-edit',
+  feature: 'fi-sr-rocket',
+  improvement: 'fi-sr-sparkles',
 } as const satisfies Record<string, IssueTypeIconClass>;
+
+/** Built-in type chip colors (Settings picker + list/peek chips). */
+export const DEFAULT_ISSUE_TYPE_COLORS: Record<string, string> = {
+  bug: 'var(--mn-danger)',
+  task: 'var(--mn-accent)',
+  idea: 'var(--mn-warning)',
+  note: 'var(--mn-fg-muted)',
+  feature: 'var(--mn-label-fig)',
+  improvement: 'var(--mn-label-kelp)',
+};
 
 /** Built-in priority ids mapped to signal glyphs for menus and form pickers. */
 export const DEFAULT_ISSUE_PRIORITY_ICONS = {
@@ -103,6 +115,13 @@ export function resolveIssueTypeIcon(typeId: string, item?: TaxonomyItem): Issue
   return resolveCatalogIcon(typeId, item, DEFAULT_ISSUE_TYPE_ICONS);
 }
 
+/** Resolve chip color: stored value, built-in default, or undefined (neutral grey). */
+export function resolveIssueTypeColor(typeId: string, item?: TaxonomyItem): string | undefined {
+  const stored = item?.color?.trim();
+  if (stored) return stored;
+  return DEFAULT_ISSUE_TYPE_COLORS[typeId];
+}
+
 /** Resolve the glyph for a taxonomy status (stored icon, built-in default, or fallback). */
 export function resolveIssueStatusIcon(statusId: string, item?: TaxonomyItem): IssueTypeIconClass {
   return resolveCatalogIcon(statusId, item, DEFAULT_ISSUE_STATUS_ICONS);
@@ -138,7 +157,8 @@ export function createIssueTypeChip(
   chip.className = `issues-type-chip issues-type-chip--${typeId}${options.labeled ? '' : ' issues-row__type'}${extra}`;
   const label = item?.label ?? `${typeId} (unknown)`;
   chip.title = label;
-  if (item?.color) chip.style.setProperty('--issues-chip-color', item.color);
+  const color = resolveIssueTypeColor(typeId, item);
+  if (color) chip.style.setProperty('--issues-chip-color', color);
   chip.classList.toggle('is-unknown', !item);
   chip.appendChild(
     createIssueTypeIconElement(resolveIssueTypeIcon(typeId, item), {

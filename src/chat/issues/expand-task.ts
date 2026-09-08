@@ -24,7 +24,7 @@ export function buildIssueExpandTask(issue: IssueCard): string {
     noteBody,
     '',
     'Do the following:',
-    '1. Classify as bug, task, or idea (keep note only if it truly is a note).',
+    '1. Classify as bug, task, idea, feature, or improvement (keep note only if it truly is a note).',
     '2. Write a crisp title and structured markdown description',
     '   (repro steps for bugs; motivation + acceptance for tasks).',
     '3. Locate the most relevant files/lines in the workspace when applicable.',

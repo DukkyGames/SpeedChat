@@ -7,7 +7,9 @@ import {
   defaultIssueStatusId,
   isClosedStatus,
   openIssueStatusIds,
+  pickNextTaxonomyColor,
   requireStatusIdForRole,
+  seedDefaultIssueTypes,
   slugifyTaxonomyLabel,
   statusIdForRole,
   validateIssuesTaxonomy,
@@ -17,7 +19,10 @@ describe('issues taxonomy', () => {
   it('seeds defaults with unique roles and board columns', () => {
     const taxonomy = createDefaultIssuesTaxonomy();
     assert.equal(taxonomy.version, 1);
-    assert.ok(taxonomy.types.length >= 4);
+    assert.ok(taxonomy.types.length >= 6);
+    assert.ok(taxonomy.types.some((t) => t.id === 'feature'));
+    assert.ok(taxonomy.types.some((t) => t.id === 'improvement'));
+    assert.equal(taxonomy.typeSeedRevision, 2);
     assert.ok(taxonomy.statuses.length >= 8);
     assert.equal(statusIdForRole(taxonomy, 'triage'), 'triage');
     assert.equal(statusIdForRole(taxonomy, 'review'), 'review');
@@ -65,6 +70,32 @@ describe('issues taxonomy', () => {
     assert.equal(requireStatusIdForRole(taxonomy, 'planned'), 'planned');
     assert.equal(slugifyTaxonomyLabel('My Custom Status'), 'my_custom_status');
     assert.equal(defaultIssueStatusId(taxonomy), 'triage');
+  });
+
+  it('rejects unsafe type colors', () => {
+    const next = structuredClone(createDefaultIssuesTaxonomy());
+    next.types[0].color = 'url(javascript:alert(1))';
+    assert.throws(() => validateIssuesTaxonomy(next), /Unknown type color/);
+  });
+
+  it('seeds Feature and Improvement once on legacy catalogs', () => {
+    const legacy = structuredClone(createDefaultIssuesTaxonomy());
+    delete legacy.typeSeedRevision;
+    legacy.types = legacy.types.filter((t) => t.id !== 'feature' && t.id !== 'improvement');
+    const seeded = seedDefaultIssueTypes(legacy);
+    assert.ok(seeded.types.some((t) => t.id === 'feature'));
+    assert.ok(seeded.types.some((t) => t.id === 'improvement'));
+    assert.equal(seeded.typeSeedRevision, 2);
+    const withoutFeature = {
+      ...seeded,
+      types: seeded.types.filter((t) => t.id !== 'feature'),
+    };
+    const again = seedDefaultIssueTypes(withoutFeature);
+    assert.equal(again.types.some((t) => t.id === 'feature'), false);
+  });
+
+  it('picks the next unused palette color', () => {
+    assert.equal(pickNextTaxonomyColor(['var(--mn-danger)']), 'var(--mn-accent)');
   });
 
   it('counts issue usage per taxonomy kind', () => {

@@ -29,6 +29,7 @@ import {
   validateIssuesState,
   issuesSchemaRevisionOf,
   validateIssuesTaxonomy,
+  seedDefaultIssueTypes,
   defaultIssuesTaxonomy,
 } from './validators.js';
 import {
@@ -401,7 +402,12 @@ export async function readResource(resource) {
   }
   if (resource === 'issues-taxonomy') {
     const data = await readConfigJson(key);
-    return data ?? defaultIssuesTaxonomy();
+    if (!data) return defaultIssuesTaxonomy();
+    try {
+      return seedDefaultIssueTypes(validateIssuesTaxonomy(data));
+    } catch {
+      return defaultIssuesTaxonomy();
+    }
   }
   if (resource === 'appearance') {
     const data = await readConfigJson(key);

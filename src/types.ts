@@ -615,7 +615,7 @@ export type IssueStatus = string;
 export type IssuePriority = string;
 
 /** Well-known default type ids (seed taxonomy). */
-export type DefaultIssueType = 'bug' | 'task' | 'idea' | 'note';
+export type DefaultIssueType = 'bug' | 'task' | 'idea' | 'note' | 'feature' | 'improvement';
 
 /** Well-known default status ids (seed taxonomy). */
 export type DefaultIssueStatus =

@@ -5,9 +5,10 @@
 
 import {
   DEFAULT_ISSUE_STATUS_ICONS,
+  DEFAULT_ISSUE_TYPE_COLORS,
   DEFAULT_ISSUE_TYPE_ICONS,
   isIssueTypeIconClass,
-} from './type-icons';
+} from './type-icons.ts';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,9 +44,17 @@ export type StatusItem = TaxonomyItem & {
   boardVisible?: boolean;
 };
 
+/**
+ * One-shot seed for built-in types added after first ship (Feature / Improvement).
+ * Increment when adding new default type ids that existing catalogs should receive once.
+ */
+export const ISSUE_TYPE_SEED_REVISION = 2;
+
 /** Persisted taxonomy catalog (Settings → Issues). */
 export type IssuesTaxonomy = {
   version: 1;
+  /** Last applied built-in type seed; omit on legacy files (treated as 1). */
+  typeSeedRevision?: number;
   types: TaxonomyItem[];
   statuses: StatusItem[];
   priorities: TaxonomyItem[];
@@ -64,17 +73,59 @@ export const ISSUE_STATUS_ROLES: readonly IssueStatusRole[] = [
   'canceled',
 ] as const;
 
-/** Small default palette for custom status/type chips (no user color picker in MVP). */
+/** Settings picker + stored chip colors (CSS tokens or hex). */
 export const TAXONOMY_COLOR_PALETTE = [
-  'var(--mn-accent)',
-  'var(--mn-success)',
-  'var(--mn-warning)',
   'var(--mn-danger)',
-  '#7c9eb2',
-  '#b29b7c',
-  '#9b7cb2',
-  '#7cb29b',
+  'var(--mn-accent)',
+  'var(--mn-warning)',
+  'var(--mn-success)',
+  'var(--mn-fg-muted)',
+  'var(--mn-label-fig)',
+  'var(--mn-label-kelp)',
+  'var(--mn-label-dusk)',
+  'var(--mn-label-tide)',
+  'var(--mn-label-apricot)',
 ] as const;
+
+const TAXONOMY_COLOR_SET = new Set<string>(TAXONOMY_COLOR_PALETTE);
+
+/** Token or hex stored on taxonomy rows (no arbitrary CSS). */
+export const TAXONOMY_COLOR_RE = /^(var\(--mn-[a-z0-9-]+\)|#[0-9a-fA-F]{3,8})$/;
+
+/** True when a stored color is a palette entry or a safe hex/token. */
+export function isTaxonomyColor(value: string): boolean {
+  const color = value.trim();
+  if (!color) return false;
+  if (TAXONOMY_COLOR_SET.has(color)) return true;
+  return TAXONOMY_COLOR_RE.test(color);
+}
+
+/** Next unused palette swatch so a new custom type is not grey. */
+export function pickNextTaxonomyColor(used: readonly (string | undefined)[]): string {
+  const taken = new Set(used.filter((c): c is string => Boolean(c?.trim())));
+  for (const color of TAXONOMY_COLOR_PALETTE) {
+    if (!taken.has(color)) return color;
+  }
+  return TAXONOMY_COLOR_PALETTE[taken.size % TAXONOMY_COLOR_PALETTE.length];
+}
+
+function readCatalogColor(
+  kind: 'types' | 'statuses' | 'priorities',
+  id: string,
+  row: Record<string, unknown>,
+  errors: TaxonomyValidationError[],
+): string | undefined {
+  if (typeof row.color !== 'string' || !row.color.trim()) return undefined;
+  const color = row.color.trim();
+  if (!isTaxonomyColor(color)) {
+    errors.push({
+      field: `${kind}.${id}.color`,
+      message: `Unknown ${kind.slice(0, -1)} color "${color}"`,
+    });
+    return undefined;
+  }
+  return color;
+}
 
 // ── Defaults ─────────────────────────────────────────────────────────────────
 
@@ -82,11 +133,50 @@ export const TAXONOMY_COLOR_PALETTE = [
 export function createDefaultIssuesTaxonomy(): IssuesTaxonomy {
   return {
     version: 1,
+    typeSeedRevision: ISSUE_TYPE_SEED_REVISION,
     types: [
-      { id: 'bug', label: 'Bug', order: 0, icon: DEFAULT_ISSUE_TYPE_ICONS.bug },
-      { id: 'task', label: 'Task', order: 1, icon: DEFAULT_ISSUE_TYPE_ICONS.task },
-      { id: 'idea', label: 'Idea', order: 2, icon: DEFAULT_ISSUE_TYPE_ICONS.idea },
-      { id: 'note', label: 'Note', order: 3, icon: DEFAULT_ISSUE_TYPE_ICONS.note },
+      {
+        id: 'bug',
+        label: 'Bug',
+        order: 0,
+        icon: DEFAULT_ISSUE_TYPE_ICONS.bug,
+        color: DEFAULT_ISSUE_TYPE_COLORS.bug,
+      },
+      {
+        id: 'task',
+        label: 'Task',
+        order: 1,
+        icon: DEFAULT_ISSUE_TYPE_ICONS.task,
+        color: DEFAULT_ISSUE_TYPE_COLORS.task,
+      },
+      {
+        id: 'idea',
+        label: 'Idea',
+        order: 2,
+        icon: DEFAULT_ISSUE_TYPE_ICONS.idea,
+        color: DEFAULT_ISSUE_TYPE_COLORS.idea,
+      },
+      {
+        id: 'note',
+        label: 'Note',
+        order: 3,
+        icon: DEFAULT_ISSUE_TYPE_ICONS.note,
+        color: DEFAULT_ISSUE_TYPE_COLORS.note,
+      },
+      {
+        id: 'feature',
+        label: 'Feature',
+        order: 4,
+        icon: DEFAULT_ISSUE_TYPE_ICONS.feature,
+        color: DEFAULT_ISSUE_TYPE_COLORS.feature,
+      },
+      {
+        id: 'improvement',
+        label: 'Improvement',
+        order: 5,
+        icon: DEFAULT_ISSUE_TYPE_ICONS.improvement,
+        color: DEFAULT_ISSUE_TYPE_COLORS.improvement,
+      },
     ],
     statuses: [
       {
@@ -246,7 +336,8 @@ function validateItemList(
 
     if (kind === 'statuses') {
       const status: StatusItem = { id, label, order };
-      if (typeof row.color === 'string' && row.color.trim()) status.color = row.color.trim();
+      const color = readCatalogColor('statuses', id, row, errors);
+      if (color) status.color = color;
       const icon = readCatalogIcon('statuses', id, row, errors);
       if (icon) status.icon = icon;
       if (typeof row.role === 'string' && row.role.trim()) {
@@ -265,7 +356,8 @@ function validateItemList(
     }
 
     const item: TaxonomyItem = { id, label, order };
-    if (typeof row.color === 'string' && row.color.trim()) item.color = row.color.trim();
+    const color = readCatalogColor(kind, id, row, errors);
+    if (color) item.color = color;
     if (kind === 'types') {
       const icon = readCatalogIcon('types', id, row, errors);
       if (icon) item.icon = icon;
@@ -348,7 +440,43 @@ export function validateIssuesTaxonomy(
     throw new Error(errors.map((e) => e.message).join('; '));
   }
 
-  return { version: 1, types, statuses, priorities };
+  const typeSeedRevision = readTypeSeedRevision(row.typeSeedRevision);
+  return { version: 1, typeSeedRevision, types, statuses, priorities };
+}
+
+function readTypeSeedRevision(raw: unknown): number | undefined {
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  const n = Math.floor(raw);
+  return n >= 1 ? n : undefined;
+}
+
+/**
+ * Append Feature / Improvement when an older catalog has not received that seed yet.
+ * After revision 2 is stored, deleting those ids is not undone on the next load.
+ */
+export function seedDefaultIssueTypes(taxonomy: IssuesTaxonomy): IssuesTaxonomy {
+  const revision = taxonomy.typeSeedRevision ?? 1;
+  if (revision >= ISSUE_TYPE_SEED_REVISION) {
+    return taxonomy.typeSeedRevision ? taxonomy : { ...taxonomy, typeSeedRevision: revision };
+  }
+
+  const defaults = createDefaultIssuesTaxonomy();
+  const nextTypes = [...taxonomy.types];
+  const seen = new Set(nextTypes.map((row) => row.id));
+  let order = nextTypes.reduce((max, row) => Math.max(max, row.order), -1);
+  for (const seed of defaults.types) {
+    if (seen.has(seed.id)) continue;
+    if (seed.id !== 'feature' && seed.id !== 'improvement') continue;
+    order += 1;
+    nextTypes.push({ ...seed, order });
+    seen.add(seed.id);
+  }
+
+  return {
+    ...taxonomy,
+    typeSeedRevision: ISSUE_TYPE_SEED_REVISION,
+    types: sortByOrder(nextTypes),
+  };
 }
 
 function collectRemovedIds(

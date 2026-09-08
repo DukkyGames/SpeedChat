@@ -63,7 +63,7 @@ When a board finishes work on an issue, the issue moves to **review** rather tha
 
 **Settings → Apps → Issues** defines your **project key** (new auto-ids) and your types, statuses and priorities.
 
-Statuses carry semantic roles and flags: which lanes appear on the board, and which count as closed, so workflows can resolve "the triage status" without hard-coding your names. Types and statuses each have an icon you pick in that table (same Flaticon set). Status chips show the icon next to the name. You can delete an entry only when nothing references it.
+Statuses carry semantic roles and flags: which lanes appear on the board, and which count as closed, so workflows can resolve "the triage status" without hard-coding your names. Types and statuses each have an icon you pick in that table (same Flaticon set). Types also have a color swatch — built-in kinds (bug, task, idea, note, feature, improvement) start with distinct colors, and **Add type** picks the next unused swatch so new kinds are not grey. Status chips show the icon next to the name. You can delete an entry only when nothing references it.
 
 Keep the taxonomy small. Humans and agents share this vocabulary, and every extra status is another thing for both to get wrong.
 

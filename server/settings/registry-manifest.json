@@ -699,13 +699,16 @@
   {
     "key": "apps.issues.types",
     "label": "Issue types",
-    "description": "Customize issue type labels and ids.",
+    "description": "Customize issue type labels, ids, icons, and colors.",
     "keywords": [
       "issue types",
       "bug",
       "task",
       "idea",
-      "taxonomy"
+      "feature",
+      "improvement",
+      "taxonomy",
+      "color"
     ],
     "category": "apps",
     "area": "issues",

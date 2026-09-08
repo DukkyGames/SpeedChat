@@ -221,6 +221,10 @@
   width: 3.25rem;
 }
 
+.settings-issues-table col.settings-issues-col-color {
+  width: 3.25rem;
+}
+
 .settings-issues-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -304,4 +308,73 @@
 
 .settings-issues-icon-picker__glyph {
   --mn-icon-size: 16px;
+}
+
+.settings-issues-color-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 1px solid color-mix(in oklch, var(--issues-chip-color, var(--mn-border)) 45%, var(--mn-border));
+  border-radius: var(--radius-sm, 6px);
+  background: color-mix(in oklch, var(--issues-chip-color, var(--mn-fg)) 22%, var(--mn-bg));
+  cursor: pointer;
+}
+
+.settings-issues-color-btn::after {
+  content: '';
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--issues-chip-color, var(--mn-fg-muted));
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .settings-issues-color-btn:hover {
+    border-color: var(--mn-border-strong);
+  }
+}
+
+.settings-issues-color-btn:focus-visible {
+  outline: 2px solid var(--mn-accent);
+  outline-offset: 2px;
+}
+
+.settings-issues-color-picker {
+  position: fixed;
+  z-index: 1200;
+  width: min(11.5rem, calc(100vw - 16px));
+  padding: 10px;
+  border: 1px solid var(--mn-border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--mn-bg);
+  box-shadow: var(--mn-shadow, 0 8px 24px oklch(0.1 0.02 250 / 0.18));
+}
+
+.settings-issues-color-picker__grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.settings-issues-color-picker__option {
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border: 1px solid color-mix(in oklch, var(--issues-chip-color) 45%, var(--mn-border));
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--issues-chip-color) 55%, var(--mn-bg));
+  cursor: pointer;
+}
+
+.settings-issues-color-picker__option.is-selected {
+  outline: 2px solid var(--mn-accent);
+  outline-offset: 1px;
+}
+
+.settings-issues-color-picker__option:focus-visible {
+  outline: 2px solid var(--mn-accent);
+  outline-offset: 1px;
 }

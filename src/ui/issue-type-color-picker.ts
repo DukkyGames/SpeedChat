@@ -1,13 +1,15 @@
-import {
-  createIssueTypeIconElement,
-  ISSUE_TYPE_ICON_PICKER,
-  type IssueTypeIconClass,
-} from '../issues/type-icons';
+/**
+ * Settings → Issues type color picker (MIN-861).
+ * Fixed palette only — same tokens/hex values stored on taxonomy rows.
+ */
 
-export interface IssueTypeIconPickerOptions {
+import { TAXONOMY_COLOR_PALETTE } from '../issues/taxonomy';
+import { closeIssueTypeIconPicker } from './issue-type-icon-picker';
+
+export interface IssueTypeColorPickerOptions {
   anchor: HTMLElement;
-  value: IssueTypeIconClass;
-  onSelect: (icon: IssueTypeIconClass) => void;
+  value: string;
+  onSelect: (color: string) => void;
 }
 
 let popoverEl: HTMLDivElement | null = null;
@@ -27,8 +29,8 @@ function detachGlobalListeners(): void {
   }
 }
 
-/** Close the type icon picker if open. */
-export function closeIssueTypeIconPicker(): void {
+/** Close the type color picker if open. */
+export function closeIssueTypeColorPicker(): void {
   if (!open) return;
   open = false;
   detachGlobalListeners();
@@ -41,8 +43,8 @@ export function closeIssueTypeIconPicker(): void {
 function positionPopover(anchor: HTMLElement, popover: HTMLElement): void {
   const rect = anchor.getBoundingClientRect();
   const margin = 8;
-  const popoverWidth = popover.offsetWidth || 280;
-  const popoverHeight = popover.offsetHeight || 200;
+  const popoverWidth = popover.offsetWidth || 200;
+  const popoverHeight = popover.offsetHeight || 120;
 
   let top = rect.bottom + 4;
   if (top + popoverHeight > window.innerHeight - margin) {
@@ -61,21 +63,27 @@ function attachGlobalListeners(): void {
     const target = e.target as Node | null;
     if (!popoverEl || !anchorEl) return;
     if (popoverEl.contains(target) || anchorEl.contains(target)) return;
-    closeIssueTypeIconPicker();
+    closeIssueTypeColorPicker();
   };
   document.addEventListener('pointerdown', outsidePointerHandler, true);
 
   escapeHandler = (e: KeyboardEvent) => {
     if (e.key !== 'Escape') return;
-    closeIssueTypeIconPicker();
+    closeIssueTypeColorPicker();
   };
   document.addEventListener('keydown', escapeHandler, true);
 }
 
-/** Open the icon grid anchored to a settings row button. */
-export function openIssueTypeIconPicker(options: IssueTypeIconPickerOptions): void {
-  void import('./issue-type-color-picker').then((m) => m.closeIssueTypeColorPicker());
+function colorLabel(color: string): string {
+  const token = color.match(/^var\(--mn-([a-z0-9-]+)\)$/);
+  if (token) return token[1].replace(/-/g, ' ');
+  return color;
+}
+
+/** Open the swatch grid anchored to a settings row button. */
+export function openIssueTypeColorPicker(options: IssueTypeColorPickerOptions): void {
   closeIssueTypeIconPicker();
+  closeIssueTypeColorPicker();
 
   const { anchor, value, onSelect } = options;
   anchorEl = anchor;
@@ -83,30 +91,25 @@ export function openIssueTypeIconPicker(options: IssueTypeIconPickerOptions): vo
   anchor.setAttribute('aria-expanded', 'true');
 
   popoverEl = document.createElement('div');
-  popoverEl.className = 'settings-issues-icon-picker';
+  popoverEl.className = 'settings-issues-color-picker';
   popoverEl.setAttribute('role', 'dialog');
-  popoverEl.setAttribute('aria-label', 'Choose icon');
+  popoverEl.setAttribute('aria-label', 'Choose color');
 
   const grid = document.createElement('div');
-  grid.className = 'settings-issues-icon-picker__grid';
+  grid.className = 'settings-issues-color-picker__grid';
 
-  for (const iconClass of ISSUE_TYPE_ICON_PICKER) {
+  for (const color of TAXONOMY_COLOR_PALETTE) {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'settings-issues-icon-picker__option';
-    btn.title = iconClass.replace(/^fi-(?:rr|sr)-/, '').replace(/-/g, ' ');
+    btn.className = 'settings-issues-color-picker__option';
+    btn.title = colorLabel(color);
     btn.setAttribute('aria-label', btn.title);
-    btn.setAttribute('aria-pressed', iconClass === value ? 'true' : 'false');
-    btn.classList.toggle('is-selected', iconClass === value);
-    btn.appendChild(
-      createIssueTypeIconElement(iconClass, {
-        className: 'settings-issues-icon-picker__glyph',
-        size: 16,
-      }),
-    );
+    btn.setAttribute('aria-pressed', color === value ? 'true' : 'false');
+    btn.classList.toggle('is-selected', color === value);
+    btn.style.setProperty('--issues-chip-color', color);
     btn.addEventListener('click', () => {
-      onSelect(iconClass);
-      closeIssueTypeIconPicker();
+      onSelect(color);
+      closeIssueTypeColorPicker();
     });
     grid.appendChild(btn);
   }
@@ -117,39 +120,34 @@ export function openIssueTypeIconPicker(options: IssueTypeIconPickerOptions): vo
   attachGlobalListeners();
 }
 
-/** Button that shows the current icon and opens the picker on click. */
-export function createIssueTypeIconPickerButton(
-  value: IssueTypeIconClass,
+/** Button that shows the current swatch and opens the picker on click. */
+export function createIssueTypeColorPickerButton(
+  value: string,
   label: string,
-  onSelect: (icon: IssueTypeIconClass) => void,
+  onSelect: (color: string) => void,
 ): HTMLButtonElement {
   const btn = document.createElement('button');
   btn.type = 'button';
-  btn.className = 'settings-issues-icon-btn';
-  btn.title = 'Choose icon';
-  btn.setAttribute('aria-label', `Icon for ${label}`);
+  btn.className = 'settings-issues-color-btn';
+  btn.title = 'Choose color';
+  btn.setAttribute('aria-label', `Color for ${label}`);
   btn.setAttribute('aria-haspopup', 'dialog');
   btn.setAttribute('aria-expanded', 'false');
 
-  const renderIcon = (iconClass: IssueTypeIconClass): void => {
-    btn.replaceChildren(
-      createIssueTypeIconElement(iconClass, {
-        className: 'settings-issues-icon-btn__glyph',
-        size: 16,
-      }),
-    );
+  const paint = (color: string): void => {
+    btn.style.setProperty('--issues-chip-color', color);
   };
 
   let current = value;
-  renderIcon(current);
+  paint(current);
   btn.addEventListener('click', () => {
-    openIssueTypeIconPicker({
+    openIssueTypeColorPicker({
       anchor: btn,
       value: current,
-      onSelect: (icon) => {
-        current = icon;
-        renderIcon(icon);
-        onSelect(icon);
+      onSelect: (color) => {
+        current = color;
+        paint(color);
+        onSelect(color);
       },
     });
   });

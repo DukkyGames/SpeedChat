@@ -7,6 +7,7 @@ import {
   countIssuesUsingTaxonomyId,
   createDefaultIssuesTaxonomy,
   ISSUE_STATUS_ROLES,
+  pickNextTaxonomyColor,
   slugifyTaxonomyLabel,
   sortedPriorities,
   sortedStatuses,
@@ -57,8 +58,9 @@ import {
 import { createSettingsToggleRow } from './settings-switch';
 import { createIcon } from './icon';
 import { createIssueTypeIconPickerButton } from './issue-type-icon-picker';
+import { createIssueTypeColorPickerButton } from './issue-type-color-picker';
 import { getWorkspaceLabel, getWorkspacePath } from '../state/workspace';
-import { resolveIssueStatusIcon, resolveIssueTypeIcon } from '../issues/type-icons';
+import { resolveIssueStatusIcon, resolveIssueTypeColor, resolveIssueTypeIcon } from '../issues/type-icons';
 import { setStatus } from './status';
 
 type TaxonomyKind = 'types' | 'statuses' | 'priorities';
@@ -130,10 +132,16 @@ function moveItem<T extends TaxonomyItem>(items: T[], id: string, delta: -1 | 1)
   return next.sort((a, b) => a.order - b.order).map((item, i) => ({ ...item, order: i }));
 }
 
-function appendTableColgroup(table: HTMLTableElement, withStatusColumns: boolean, withIconColumn = false): void {
+function appendTableColgroup(
+  table: HTMLTableElement,
+  withStatusColumns: boolean,
+  withIconColumn = false,
+  withColorColumn = false,
+): void {
   const colgroup = document.createElement('colgroup');
   const cols = [];
   if (withIconColumn) cols.push(el('col', 'settings-issues-col-icon'));
+  if (withColorColumn) cols.push(el('col', 'settings-issues-col-color'));
   cols.push(
     el('col', 'settings-issues-col-label'),
     el('col', 'settings-issues-col-id'),
@@ -156,6 +164,7 @@ function renderTaxonomyTable(
 ): void {
   const withStatusColumns = kind === 'statuses';
   const withIconColumn = kind === 'types' || kind === 'statuses';
+  const withColorColumn = kind === 'types';
   const body = appendSettingsGroup(mount, title, hint, searchKey, { emphasis: true });
   const taxonomy = getIssuesTaxonomySync();
   const items =
@@ -169,12 +178,13 @@ function renderTaxonomyTable(
   const table = document.createElement('table');
   table.className = 'settings-issues-table';
 
-  appendTableColgroup(table, withStatusColumns, withIconColumn);
+  appendTableColgroup(table, withStatusColumns, withIconColumn, withColorColumn);
 
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
   const headers = [
     ...(withIconColumn ? ['Icon'] : []),
+    ...(withColorColumn ? ['Color'] : []),
     'Label',
     'Id',
     ...(withStatusColumns ? ['Role', 'Options'] : []),
@@ -201,7 +211,9 @@ function renderTaxonomyTable(
     tbody.appendChild(emptyRow);
   } else {
     for (const item of items) {
-      tbody.appendChild(renderTaxonomyRow(kind, item, withStatusColumns, withIconColumn, onChange));
+      tbody.appendChild(
+        renderTaxonomyRow(kind, item, withStatusColumns, withIconColumn, withColorColumn, onChange),
+      );
     }
   }
   table.appendChild(tbody);
@@ -230,6 +242,7 @@ function renderTaxonomyRow(
   item: TaxonomyItem | StatusItem,
   withStatusColumns: boolean,
   withIconColumn: boolean,
+  withColorColumn: boolean,
   onChange: () => void,
 ): HTMLTableRowElement {
   const row = document.createElement('tr');
@@ -249,6 +262,14 @@ function renderTaxonomyRow(
       },
     );
     row.appendChild(labeledCell('Icon', iconBtn));
+  }
+
+  if (withColorColumn) {
+    const resolvedColor = resolveIssueTypeColor(item.id, item) ?? 'var(--mn-fg-muted)';
+    const colorBtn = createIssueTypeColorPickerButton(resolvedColor, item.label, (color) => {
+      void updateItemColor(kind, item.id, color, onChange);
+    });
+    row.appendChild(labeledCell('Color', colorBtn));
   }
 
   const labelInput = document.createElement('input');
@@ -361,6 +382,20 @@ function renderTaxonomyRow(
 }
 
 // ── Mutations ────────────────────────────────────────────────────────────────
+
+async function updateItemColor(
+  kind: TaxonomyKind,
+  id: string,
+  color: string,
+  onChange: () => void,
+): Promise<void> {
+  if (kind !== 'types') return;
+  const next = cloneTaxonomy();
+  const item = next.types.find((row) => row.id === id);
+  if (!item) return;
+  item.color = color;
+  if (await persistTaxonomy(next)) onChange();
+}
 
 async function updateItemIcon(
   kind: TaxonomyKind,
@@ -499,6 +534,7 @@ async function promptAndAddItem(kind: TaxonomyKind, onChange: () => void): Promi
       label: label.trim(),
       order,
       icon: resolveIssueTypeIcon(id),
+      color: pickNextTaxonomyColor(next.types.map((row) => row.color)),
     });
   } else {
     next.priorities.push({ id, label: label.trim(), order });
@@ -654,7 +690,7 @@ function renderIssuesTaxonomyPanels(content: HTMLElement, onChange: () => void):
     content,
     'types',
     'Types',
-    'Bug, task, idea, note, or your own kinds.',
+    'Bug, task, idea, note, feature, improvement, or your own kinds. Pick a color so custom types are not grey.',
     'apps.issues.types',
     onChange,
   );

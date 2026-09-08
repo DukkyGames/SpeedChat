@@ -28,7 +28,7 @@ Two settings here matter more than the rest:
 
 **Apps** lists what is installed. Every shipped app is core, so there is nothing to disable and you will see a "Coming soon" placeholder where optional apps will appear.
 
-**Issues** is the taxonomy editor for the tracker: types, statuses with workflow roles and board flags, and priorities.
+**Issues** is the taxonomy editor for the tracker: types (icons and colors), statuses with workflow roles and board flags, and priorities.
 
 ### Appearance
 

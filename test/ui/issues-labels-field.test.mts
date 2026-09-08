@@ -168,4 +168,80 @@ describe('issues labels field', () => {
     const filtered = filterIssueLabelSuggestions(suggestions, ['TAG-1'], '');
     assert.equal(filtered.length, 24);
   });
+
+  test('onBlur fires once when focus leaves the field for an outside element', () => {
+    const issue = seedIssue(['AUTH']);
+    let blurCount = 0;
+    const field = createIssuesLabelsField({
+      issueId: issue.id,
+      labels: issue.labels,
+      variant: 'detail',
+      onChange: () => {},
+      onBlur: () => {
+        blurCount += 1;
+      },
+    });
+    document.body.append(field);
+
+    const add = field.querySelector('.issues-labels-field__add');
+    assert.ok(add instanceof globalThis.HTMLButtonElement);
+    add.focus();
+    assert.equal(blurCount, 0, 'focus inside the field must not fire onBlur');
+
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+    assert.equal(blurCount, 1);
+  });
+
+  test('onBlur does not fire when focus stays inside the field', () => {
+    const issue = seedIssue(['AUTH']);
+    let blurCount = 0;
+    const field = createIssuesLabelsField({
+      issueId: issue.id,
+      labels: issue.labels,
+      variant: 'detail',
+      onChange: () => {},
+      onBlur: () => {
+        blurCount += 1;
+      },
+    });
+    document.body.append(field);
+
+    const add = field.querySelector('.issues-labels-field__add');
+    assert.ok(add instanceof globalThis.HTMLButtonElement);
+    const remove = field.querySelector('.issues-label-chip__remove');
+    assert.ok(remove instanceof globalThis.HTMLButtonElement);
+    add.focus();
+    remove.focus();
+
+    assert.equal(blurCount, 0);
+  });
+
+  test('onBlur does not fire when focus moves into the body-mounted add flyout', () => {
+    const issue = seedIssue(['AUTH']);
+    let blurCount = 0;
+    const field = createIssuesLabelsField({
+      issueId: issue.id,
+      labels: issue.labels,
+      variant: 'detail',
+      onChange: () => {},
+      onBlur: () => {
+        blurCount += 1;
+      },
+    });
+    document.body.append(field);
+
+    const add = field.querySelector('.issues-labels-field__add');
+    assert.ok(add instanceof globalThis.HTMLButtonElement);
+    add.click(); // opens the flyout and focuses its input
+    const flyoutInput = document.querySelector('.issues-labels-add-popover input');
+    assert.ok(flyoutInput instanceof globalThis.HTMLInputElement, 'flyout input should be focused');
+    assert.equal(document.activeElement, flyoutInput);
+
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus(); // focusout: field add button -> flyout input
+    assert.equal(blurCount, 0);
+  });
 });

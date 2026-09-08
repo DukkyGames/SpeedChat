@@ -31,15 +31,21 @@ export function applyIssueLabelSwatch(el: HTMLElement, name: string): void {
   el.dataset.swatch = getIssueLabelSwatch(name);
 }
 
-/** True when a labels popover owns focus (skip peek remount). */
-export function isIssuesLabelPopoverFocused(): boolean {
-  const active = document.activeElement;
-  if (!active || typeof (active as { closest?: unknown }).closest !== 'function') return false;
-  return Boolean(
-    (active as HTMLElement).closest(
-      '.issues-labels-popover, .issues-labels-overflow, .issues-label-color-picker, .issues-labels-add-popover',
-    ),
-  );
+/**
+ * True when a labels popover owns focus (skip peek remount). During focusout,
+ * activeElement is already body, so callers pass event.relatedTarget to catch
+ * focus moving into a popover mounted on document.body.
+ */
+export function isIssuesLabelPopoverFocused(relatedTarget?: EventTarget | null): boolean {
+  const inPopover = (target: EventTarget | null | undefined): boolean =>
+    target instanceof Element &&
+    Boolean(
+      target.closest(
+        '.issues-labels-popover, .issues-labels-overflow, .issues-label-color-picker, .issues-labels-add-popover',
+      ),
+    );
+  if (inPopover(document.activeElement)) return true;
+  return inPopover(relatedTarget);
 }
 
 /** Close overflow, color picker, or add flyout. */

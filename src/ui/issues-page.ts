@@ -1335,6 +1335,7 @@ function buildIssueRow(
     onChange: (nextLabels) => {
       updateIssue(issue.id, { labels: nextLabels });
     },
+    onBlur: () => refreshIssueDetailIfOpen(),
   });
 
   const updated = document.createElement('span');

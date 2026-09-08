@@ -176,6 +176,32 @@ describe('issues expand overlay', () => {
       'Edited body that keeps the proposal as a starting point.',
     );
   });
+
+  test('apply refreshes the open detail pane without switching issues', async () => {
+    seedIssue({ title: 'login broken', description: '' });
+    setExpandIssueFetcherForTests(async (req) => {
+      const draft = {
+        title: 'Fix login save crash',
+        description: 'Saving settings throws. Fill in repro from the stub.',
+      };
+      req.onPartial?.(draft);
+      return { draft };
+    });
+
+    openIssueDetail('MIN-8');
+    await startIssueExpandFromUi('MIN-8');
+    assert.equal(isIssueExpandOverlayOpen(), true);
+
+    document.getElementById('issuesExpandApply')?.click();
+
+    assert.equal(findIssueById('MIN-8')?.title, 'Fix login save crash');
+    // The detail refresh rides a dynamic import; let its microtask land.
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    const detailTitle = document.querySelector('.issues-detail__title');
+    assert.ok(detailTitle instanceof HTMLInputElement, 'detail pane should still be open');
+    assert.equal(detailTitle.value, 'Fix login save crash');
+  });
 });
 
 describe('issues peek expand control', () => {

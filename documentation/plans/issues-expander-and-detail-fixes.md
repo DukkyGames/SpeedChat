@@ -4,10 +4,10 @@ overview: Fix three Issues-app UX defects in one commit — the detail pane not 
 todos:
   - id: W1-A
     content: "Wave 1: Refresh issue detail after expander apply and label edits (MIN-278)"
-    status: pending
+    status: completed
   - id: W1-B
     content: "Wave 1: Issues expander uses top-bar default model, not active chat (MIN-275)"
-    status: pending
+    status: completed
   - id: W2-A
     content: "Wave 2: Expander proposes labels and priority in the review overlay (MIN-276)"
     status: pending

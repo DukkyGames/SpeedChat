@@ -674,6 +674,7 @@ function renderIssueDetail(host: HTMLElement, issue: IssueCard): void {
     onChange: (labels) => {
       updateIssue(issue.id, { labels });
     },
+    onBlur: () => refreshIssueDetailIfOpen(),
   });
   sticky.appendChild(labelsField);
 

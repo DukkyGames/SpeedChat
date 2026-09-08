@@ -285,6 +285,11 @@ function applyExpand(): void {
   updateIssue(issueId, { title, description });
   closeOverlay();
   syncExpandButtons();
+  // The store emit above landed while the overlay still owned the editing
+  // guard, so the open detail never re-rendered; refresh it now that the
+  // overlay is closed. Dynamic import: a static one would cycle through
+  // issues-detail → issues-expand-controls → this module.
+  void import('./issues-detail').then((m) => m.refreshIssueDetailIfOpen());
   setStatus('ok', 'Issue expanded');
   showToast('Issue expanded', 'success');
 }

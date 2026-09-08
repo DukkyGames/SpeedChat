@@ -27,6 +27,8 @@ export type IssuesLabelsFieldOptions = {
   severity?: string;
   variant: 'detail' | 'row' | 'form';
   onChange: (labels: string[]) => void;
+  /** Focus left the field and every labels popover (add flyout mounts on body). */
+  onBlur?: () => void;
 };
 
 // ── Focus ────────────────────────────────────────────────────────────────────
@@ -344,6 +346,16 @@ export function createIssuesLabelsField(options: IssuesLabelsFieldOptions): HTML
       return;
     }
     openAddPopover();
+  });
+
+  // The add flyout mounts on document.body, so "left the field" must also
+  // exclude focus inside that popover before firing onBlur. relatedTarget is
+  // required: activeElement is already body during focusout.
+  root.addEventListener('focusout', (event) => {
+    const related = event.relatedTarget as Node | null;
+    if (related && root.contains(related)) return;
+    if (isIssuesLabelPopoverFocused(event.relatedTarget)) return;
+    options.onBlur?.();
   });
 
   root.append(chipsHost, addButton);

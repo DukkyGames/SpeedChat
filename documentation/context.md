@@ -176,6 +176,10 @@ Middleware registration: [`server/runtime/middlewares.js`](../server/runtime/mid
 
 ---
 
+## Board report presentation
+
+The end-of-run report (`src/orchestrator/board-report.ts`) presents task outcomes and attempt evidence from derived board state, followed by integration verification, the saved narrative, and existing run actions. `report-evidence.ts` renders evidence as text-safe labeled fields, status badges, and lazy native disclosures for attempts, logs, patches, and diagnostic metadata. JSON fences in saved reports receive the same structured presentation, retaining historical evidence and an expandable raw view without changing report storage or exports.
+
 ## Client bootstrap
 
 [`src/main.ts`](../src/main.ts):

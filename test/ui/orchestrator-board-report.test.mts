@@ -299,3 +299,56 @@ describe('startFollowUp', () => {
     assert.equal(opts.initialUserMessage, undefined);
   });
 });
+
+// Saved reports must remain useful even when their evidence predates the current fold.
+describe('structured report evidence', () => {
+  test('converts saved JSON to labeled fields and defers large diagnostics', async () => {
+    setupDom();
+    const evidence = { by: 'user', attempts: [{ role: 'tester', outcome: 'fail', summary: '<img src=x onerror=alert(1)>', testOutput: 'compiler failure', diff: { files: ['src/example.ts'], patch: 'large patch' } }] };
+    const node = renderBoardReport(finishedBoard(), 'Before\n\n```json\n' + JSON.stringify(evidence) + '\n```\n\nAfter', false, { dismiss() {}, reopen() {}, fixFinal() {} });
+    document.body.append(node);
+    assert.match(node.textContent!, /Stopped by/);
+    assert.match(node.textContent!, /Before/);
+    assert.match(node.textContent!, /After/);
+    assert.equal(node.querySelector('img'), null);
+    assert.doesNotMatch(node.textContent!, /compiler failure|large patch/);
+    const attempt = [...node.querySelectorAll('details')].find((d) => d.querySelector('summary')?.textContent === '1. Tester · Fail')!;
+    assert.ok(attempt);
+    attempt.open = true;
+    attempt.dispatchEvent(new window.Event('toggle'));
+    assert.match(attempt.textContent!, /<img src=x onerror=alert\(1\)>/);
+    assert.equal(attempt.querySelector('img'), null);
+    const log = [...attempt.querySelectorAll('details')].find((d) => d.querySelector('summary')?.textContent === 'View test output')!;
+    log.open = true;
+    log.dispatchEvent(new window.Event('toggle'));
+    log.dispatchEvent(new window.Event('toggle'));
+    assert.equal(log.querySelectorAll('pre').length, 1);
+    assert.equal(log.querySelector('pre')?.textContent, 'compiler failure');
+  });
+
+  test('keeps malformed JSON accessible behind a disclosure', () => {
+    setupDom();
+    const node = renderBoardReport(finishedBoard(), '```json\n{broken\n```', false, { dismiss() {}, reopen() {}, fixFinal() {} });
+    const details = [...node.querySelectorAll('details')].find((d) => d.textContent === 'View recorded evidence')!;
+    assert.ok(details);
+    assert.equal(details.open, false);
+    details.open = true;
+    details.dispatchEvent(new window.Event('toggle'));
+    assert.match(details.textContent!, /\{broken/);
+  });
+
+  test('task results expose recorded attempts and merged commit on expansion', () => {
+    setupDom();
+    const state = finishedBoard();
+    state.tasks.get('W1-A')!.attempts.push({ attemptId: 'a1', role: 'builder', worktree: null, seedKind: 'initial', ended: true, outcome: 'pass', summary: 'Implemented the fix', evidence: { files: ['a.ts'] }, manual: false, retired: false });
+    const node = renderBoardReport(state, null, true, { dismiss() {}, reopen() {}, fixFinal() {} });
+    const task = node.querySelector<HTMLDetailsElement>('.ov2-report-task')!;
+    assert.equal(task.open, false);
+    task.open = true;
+    task.dispatchEvent(new window.Event('toggle'));
+    assert.match(task.textContent!, /Implemented the fix/);
+    assert.match(task.textContent!, /abc123abc123/);
+    assert.match(node.textContent!, /Writing the end-of-run report/);
+  });
+});
+

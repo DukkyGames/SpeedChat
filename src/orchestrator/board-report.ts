@@ -12,6 +12,7 @@ import { refreshFileTreeViaBridge } from '../ui/file-tree-refresh-bridge.ts';
 import { createChatWithMode } from '../ui/sidebar.ts';
 import { countPhase, renderRunLedger } from './board-render';
 import { el } from './dom';
+import { renderReportEvidence, reportBadge, reportDisclosure } from './report-evidence';
 
 /** Cap the report excerpt so the chip stays within typical text-attachment size. */
 const FOLLOW_UP_REPORT_MAX_CHARS = 4000;
@@ -86,6 +87,15 @@ export function renderBoardReport(
     wrap.appendChild(renderIssues(state, issues));
   }
 
+  wrap.appendChild(renderTaskResults(state));
+  const verification = el('section', 'ov2-report-screen__section');
+  verification.appendChild(el('h4', 'ov2-report-screen__section-title', 'Integration check'));
+  verification.appendChild(reportBadge(state.finalTest?.outcome || 'not recorded'));
+  if (state.finalTest?.evidence) verification.appendChild(renderReportEvidence(state.finalTest.evidence));
+  if (state.finalTest?.runInstructions) {
+    verification.appendChild(el('pre', 'ov2-report-evidence__log', state.finalTest.runInstructions));
+  }
+  wrap.appendChild(verification);
   wrap.appendChild(renderMarkdown(markdown, loading));
 
   const ledger = renderRunLedger(state, { rerun: () => actions.reopen() });
@@ -103,12 +113,14 @@ export function renderBoardReport(
 
 function renderCopy(state: BoardState): HTMLElement {
   const block = el('div', 'ov2-report-screen__copy');
+  block.appendChild(el('p', 'ov2-report-screen__eyebrow', state.name || state.boardId));
   const title = el('h3', 'ov2-report-screen__title');
   title.textContent = titleFor(state);
   const subtitle = el('p', 'ov2-report-screen__lede');
   subtitle.textContent = ledeFor(state);
   block.appendChild(title);
   block.appendChild(subtitle);
+  if (state.runSummary) block.appendChild(el('p', 'ov2-report-screen__summary', state.runSummary));
   return block;
 }
 
@@ -173,7 +185,7 @@ function collectIssues(state: BoardState): Array<{ task: TaskState; reason: stri
         task,
         reason:
           task.abandonedReason === 'user'
-            ? 'Abandoned by hand'
+            ? 'Stopped by you'
             : task.abandonedReason || 'Abandoned',
       });
       continue;
@@ -193,7 +205,7 @@ function renderIssues(
   issues: Array<{ task: TaskState; reason: string }>,
 ): HTMLElement {
   const section = el('section', 'ov2-report-screen__section');
-  section.appendChild(el('h4', 'ov2-report-screen__section-title', 'Issues'));
+  section.appendChild(el('h4', 'ov2-report-screen__section-title', 'Needs attention'));
   if (state.finalTest?.outcome === 'fail') {
     const summary = el('p', 'ov2-report-screen__final-fail');
     const evidence = state.finalTest.evidence;
@@ -221,16 +233,56 @@ function renderIssues(
   for (const { task, reason } of issues) {
     const li = el('li', 'ov2-report-screen__issue');
     li.appendChild(el('span', 'ov2-report-screen__issue-id', task.id));
-    li.appendChild(el('span', 'ov2-report-screen__issue-text', reason));
+    li.appendChild(el('span', 'ov2-report-screen__issue-text', `${task.title}: ${reason}`));
     list.appendChild(li);
   }
   section.appendChild(list);
   return section;
 }
 
+function renderTaskResults(state: BoardState): HTMLElement {
+  const section = el('section', 'ov2-report-screen__section');
+  section.appendChild(el('h4', 'ov2-report-screen__section-title', 'Task results'));
+  for (const id of state.taskOrder) {
+    const task = state.tasks.get(id);
+    if (!task) continue;
+    const details = reportDisclosure('', () => {
+      const body = el('div', 'ov2-report-task__body');
+      if (task.abandonedReason) body.appendChild(el('p', '', task.abandonedReason === 'user' ? 'Stopped by you. Review the attempts before restarting this task.' : task.abandonedReason));
+      if (task.skippedBy) body.appendChild(el('p', '', `Waiting on ${task.skippedBy}. Resolve that task before retrying.`));
+      if (task.mergedSha) body.appendChild(el('p', 'ov2-report-screen__quiet', `Merged commit ${task.mergedSha}`));
+      if (task.mergeConflicts?.length) body.appendChild(renderReportEvidence({ mergeConflicts: task.mergeConflicts }));
+      task.attempts.forEach((attempt, index) => {
+        const article = el('article', 'ov2-report-attempt');
+        const role = attempt.role.charAt(0).toUpperCase() + attempt.role.slice(1);
+        const heading = el('h5', 'ov2-report-attempt__heading', `${index + 1}. ${role}${attempt.retired ? ' · Previous run' : ''}`);
+        heading.appendChild(reportBadge(attempt.outcome || (attempt.ended ? 'ended' : 'in progress')));
+        article.appendChild(heading);
+        if (attempt.summary) article.appendChild(el('p', '', attempt.summary));
+        if (attempt.evidence) article.appendChild(renderReportEvidence(attempt.evidence));
+        article.appendChild(reportDisclosure('Attempt details', () => renderReportEvidence({ attemptId: attempt.attemptId, worktree: attempt.worktree, seedKind: attempt.seedKind })));
+        body.appendChild(article);
+      });
+      if (task.abandonedEvidence) body.appendChild(reportDisclosure('Evidence at abandonment', () => renderReportEvidence(task.abandonedEvidence)));
+      if (task.touchesOverflow.length) body.appendChild(renderReportEvidence({ touchesOverflow: task.touchesOverflow }));
+      if (!body.childElementCount) body.appendChild(el('p', 'ov2-report-screen__quiet', 'No attempt evidence recorded.'));
+      return body;
+    });
+    details.classList.add('ov2-report-task');
+    const summary = details.querySelector('summary')!;
+    summary.appendChild(el('span', 'ov2-report-screen__issue-id', task.id));
+    summary.appendChild(el('span', 'ov2-report-task__title', task.title));
+    summary.appendChild(reportBadge(task.phase));
+    summary.appendChild(el('span', 'ov2-report-task__count', `${task.attempts.length} ${task.attempts.length === 1 ? 'attempt' : 'attempts'}`));
+    section.appendChild(details);
+  }
+  if (!state.taskOrder.length) section.appendChild(el('p', 'ov2-report-screen__quiet', 'No tasks recorded for this run.'));
+  return section;
+}
+
 function renderMarkdown(markdown: string | null, loading: boolean): HTMLElement {
   const section = el('section', 'ov2-report-screen__section');
-  section.appendChild(el('h4', 'ov2-report-screen__section-title', 'Report'));
+  section.appendChild(el('h4', 'ov2-report-screen__section-title', 'Run narrative'));
   if (loading && !markdown) {
     section.appendChild(el('p', 'ov2-report-screen__pending', 'Writing the end-of-run report…'));
     return section;
@@ -240,7 +292,27 @@ function renderMarkdown(markdown: string | null, loading: boolean): HTMLElement 
     return section;
   }
   const body = el('div', 'ov2-report-screen__markdown msg-bubble msg-bubble--md');
-  setAssistantBubbleContent(body, markdown, { modeId: 'orchestrate' });
+  // Saved reports may contain historical evidence absent from the current task fold.
+  // Preserve surrounding prose and render JSON fences as structured evidence.
+  const fence = /^```json\s*\r?\n([\s\S]*?)^```\s*$/gim;
+  let cursor = 0;
+  const prose = (text: string): void => {
+    if (!text.trim()) return;
+    const part = el('div', '');
+    setAssistantBubbleContent(part, text, { modeId: 'orchestrate' });
+    body.appendChild(part);
+  };
+  for (const match of markdown.matchAll(fence)) {
+    prose(markdown.slice(cursor, match.index));
+    try {
+      body.appendChild(renderReportEvidence(JSON.parse(match[1])));
+      body.appendChild(reportDisclosure('View raw evidence', () => el('pre', 'ov2-report-evidence__log', match[1])));
+    } catch {
+      body.appendChild(reportDisclosure('View recorded evidence', () => el('pre', 'ov2-report-evidence__log', match[1])));
+    }
+    cursor = match.index! + match[0].length;
+  }
+  prose(markdown.slice(cursor));
   section.appendChild(body);
   return section;
 }
@@ -665,3 +737,4 @@ function totalAttempts(state: BoardState): number {
   for (const task of state.tasks.values()) n += task.attempts.filter((a) => a.ended).length;
   return n;
 }
+

@@ -11,7 +11,7 @@ This is the most powerful thing in Minnow and the one that most rewards understa
 3. Each task gets its own chat and its own agent: a **builder** implements it, a **tester** verifies it, a **fixer** repairs failures.
 4. Completed work merges into an integration branch.
 5. A **final integration test** runs across the whole board.
-6. A finish dashboard offers to commit, push, and open a pull request.
+6. A finish report offers to commit, push, and open a pull request.
 
 You choose how much of that happens without you.
 
@@ -99,7 +99,7 @@ Every board writes a diagnostic log of status changes, verdicts, merges, retries
 
 When every task is complete, a **final integration test** runs across the whole board. It is the check that the parts work together, which per-task tests cannot tell you.
 
-Then the **finish dashboard** replaces the kanban with a written summary of what was done and what to do next, unresolved issues with suggested steps, and git files/lines changed.
+Then the **finish report** replaces the kanban, as a full-width dashboard. A row of tiles carries the run's counts — merged, abandoned, skipped, runs, files, lines, and whether the integration check passed. **Needs attention** is next: one line per card that did not finish, saying why, with a **Reset task** button on it. Below that is one row per task with its outcome, how many runs it took, and a GitHub-style `+/−` diffstat; open a row for its runs and the files it changed, line counts and all. Run notes and the raw journal stay closed at the bottom.
 
 Its primary action commits the integration work into your branch, and — depending on what your repository supports — pushes it and opens a pull request. There is a caret for **Commit only** or **Commit + push**. A separate **Clear worktrees** action removes the git worktrees the board created.
 

@@ -1736,50 +1736,53 @@
   }
 }
 
-.ov2-work__summary-wrap {
+.ov2-work__scan {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 2px;
+  gap: 6px;
   padding: 0 6px 10px 28px;
 }
 
-.ov2-work__summary {
-  display: -webkit-box;
+.ov2-work__scent,
+.ov2-work__blocker {
   margin: 0;
-  overflow: hidden;
   color: var(--mn-fg-muted);
   font-size: 12px;
   line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  overflow-wrap: anywhere;
 }
 
-.ov2-work__summary.is-expanded {
-  display: block;
-  overflow: visible;
-  -webkit-line-clamp: unset;
+.ov2-work__blocker {
+  color: var(--mn-fg);
 }
 
-.ov2-work__more {
+.ov2-work__scan .ov2-attempt-facts {
+  margin: 0;
   padding: 0;
-  border: 0;
-  background: none;
-  color: var(--mn-fg-subtle);
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
 }
 
-.ov2-work__more:focus-visible {
+.ov2-attempt-writeup--compact .ov2-attempt-writeup__full--compact > summary {
+  cursor: pointer;
+  padding: 4px 0;
+  min-height: 0;
+  color: var(--mn-fg-subtle);
+  font-size: 11px;
+}
+
+.ov2-attempt-writeup--compact .ov2-attempt-writeup__body {
+  margin: 6px 0 0;
+  color: var(--mn-fg-muted);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ov2-attempt-writeup--compact .ov2-attempt-writeup__full--compact > summary:focus-visible {
   outline: 2px solid var(--mn-focus-ring, var(--mn-accent));
   outline-offset: 2px;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .ov2-work__more:hover {
-    color: var(--mn-fg);
-  }
+  border-radius: 4px;
 }
 
 /* ── Thread ────────────────────────────────────────────────────────────────
@@ -2589,26 +2592,57 @@ select.ov2-create__input {
 
 /* ── Report screen (replaces the kanban when the run is over) ─────────── */
 
+/*
+ * A dashboard, not a document: the run's numbers, then the work that still
+ * needs a decision, then one row per task. It runs the full width of the pane
+ * because the payload is tabular — ids, outcomes, and diffstats line up.
+ */
 .ov2-report-screen {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 20px;
   box-sizing: border-box;
   width: 100%;
-  max-width: min(52rem, 100%);
+  max-width: min(96rem, 100%);
   margin: 0 auto;
-  padding: 20px 24px 28px;
+  /* `.ov2__board` already supplies the pane gutter; only add breathing room. */
+  padding: 4px 0 24px;
+  container-type: inline-size;
+}
+
+/* ── Header ────────────────────────────────────────────────────────────── */
+
+.ov2-report-screen__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--mn-border);
 }
 
 .ov2-report-screen__copy {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 22rem;
+}
+
+.ov2-report-screen__eyebrow {
+  margin: 0;
+  color: var(--mn-fg-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
 }
 
 .ov2-report-screen__title {
   margin: 0;
-  font: 600 1.125rem/1.25 var(--font-ui, system-ui, sans-serif);
+  font: 600 1.375rem/1.2 var(--font-ui, system-ui, sans-serif);
   letter-spacing: -0.02em;
   color: var(--mn-fg);
   text-wrap: balance;
@@ -2616,118 +2650,11 @@ select.ov2-create__input {
 
 .ov2-report-screen__lede {
   margin: 0;
-  max-width: 62ch;
-  font-size: 0.875rem;
-  line-height: 1.55;
-  color: var(--mn-fg-muted);
-}
-
-.ov2-report-screen__stats {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px 10px;
-  font-family: var(--font-mono, ui-monospace, monospace);
-}
-
-.ov2-report-screen__stat {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.ov2-report-screen__stat-value {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--mn-fg);
-}
-
-.ov2-report-screen__stat-label,
-.ov2-report-screen__stat-sep {
-  color: var(--mn-fg-muted);
-  font-size: 11px;
-}
-
-.ov2-report-screen__section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-width: 0;
-}
-
-.ov2-report-screen__section-title {
-  margin: 0;
-  font: 600 13px/1.3 var(--font-ui, system-ui, sans-serif);
-  color: var(--mn-fg);
-}
-
-.ov2-report-screen__quiet,
-.ov2-report-screen__pending,
-.ov2-report-screen__final-fail {
-  margin: 0;
-  font-size: 14px;
+  max-width: 72ch;
+  font-size: 0.8125rem;
   line-height: 1.5;
   color: var(--mn-fg-muted);
-}
-
-.ov2-report-screen__final-fail {
-  color: var(--mn-fg);
-}
-
-.ov2-report-screen__run {
-  margin: 0;
-  font-size: 13px;
-}
-
-.ov2-report-screen__run-label {
-  color: var(--mn-fg-subtle);
-}
-
-.ov2-report-screen__run-cmd {
-  padding: 2px 6px;
-  border-radius: 5px;
-  background: var(--mn-surface-1);
-  font-size: 11px;
   overflow-wrap: anywhere;
-}
-
-.ov2-report-screen__issues {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.ov2-report-screen__issue {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 12px;
-  align-items: baseline;
-  font-size: 13px;
-}
-
-.ov2-report-screen__issue-id {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 11px;
-  color: var(--mn-fg-muted);
-}
-
-.ov2-report-screen__markdown {
-  max-width: 72ch;
-}
-
-.ov2-report-screen__ledger {
-  margin-top: 4px;
-}
-
-.ov2-report-screen__footer {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 4px;
-  border-top: 1px solid var(--mn-border);
 }
 
 .ov2-report-screen__actions {
@@ -2737,22 +2664,832 @@ select.ov2-create__input {
   gap: 8px;
 }
 
+/* ── Stat tiles ────────────────────────────────────────────────────────── */
+
+.ov2-report-screen__stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+  gap: 8px;
+}
+
+.ov2-stat-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--mn-border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--mn-surface-0);
+}
+
+.ov2-stat-tile__value {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 1.25rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  color: var(--mn-fg);
+}
+
+.ov2-stat-tile__label {
+  color: var(--mn-fg-muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.ov2-stat-tile[data-tone='good'] .ov2-stat-tile__value {
+  color: var(--mn-success-ink);
+}
+
+/*
+ * Warning is the one semantic hue with no `-ink` pair, and `--mn-warning` as
+ * text bottoms out at 2.00:1 on human-light. So the warn states carry their
+ * meaning in a soft fill plus the label, and keep `--mn-fg` for the words.
+ */
+.ov2-stat-tile[data-tone='warn'] {
+  border-color: var(--mn-warning-border);
+  background: var(--mn-warning-soft);
+}
+
+.ov2-stat-tile[data-tone='bad'] .ov2-stat-tile__value {
+  color: var(--mn-danger-ink);
+}
+
+/* The lines tile carries its own add/del colours, so it must not inherit one. */
+.ov2-stat-tile .ov2-stat {
+  font-size: 1rem;
+}
+
+/* ── Sections ──────────────────────────────────────────────────────────── */
+
+.ov2-report-screen__group,
+.ov2-report-screen__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ov2-report-screen__section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font: 600 0.8125rem/1.3 var(--font-ui, system-ui, sans-serif);
+  color: var(--mn-fg);
+}
+
+.ov2-report-screen__count {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--mn-surface-1);
+  color: var(--mn-fg-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.ov2-report-screen__group--attention .ov2-report-screen__count {
+  background: color-mix(in srgb, var(--mn-warning) 22%, transparent);
+  color: var(--mn-fg);
+}
+
+.ov2-report-screen__group--reference {
+  margin-top: 4px;
+}
+
+.ov2-report-screen__cards {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ov2-report-screen__quiet,
+.ov2-report-screen__pending {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--mn-fg-muted);
+}
+
+.ov2-report-screen__run-cmd {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--mn-surface-1);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+/* ── Needs attention ───────────────────────────────────────────────────── */
+
+/*
+ * One row per unfinished card: what it is, why it stopped, and the one button
+ * that unsticks it. Attempts and patches live in the task rows below.
+ */
+.ov2-attention {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov2-attention__row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr) auto auto;
+  align-items: start;
+  gap: 4px 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--mn-border);
+  border-left: 3px solid var(--mn-warning);
+  border-radius: var(--radius-md, 10px);
+  background: var(--mn-surface-0);
+}
+
+.ov2-attention__row--final {
+  border-left-color: var(--mn-danger);
+}
+
+.ov2-attention__id {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--mn-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.ov2-attention__main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ov2-attention__title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.ov2-attention__issue {
+  margin: 0;
+  max-width: 90ch;
+  color: var(--mn-fg-muted);
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ov2-attention__run {
+  margin: 2px 0 0;
+}
+
+.ov2-attention__action {
+  white-space: nowrap;
+}
+
+/* ── Task rows ─────────────────────────────────────────────────────────── */
+
+.ov2-report-card {
+  min-width: 0;
+  border: 1px solid var(--mn-border);
+  border-radius: var(--radius-md, 10px);
+  background: var(--mn-surface-0);
+}
+
+.ov2-report-card[open] {
+  border-color: var(--mn-border-strong);
+  background: var(--mn-surface-1);
+}
+
+/* Fixed trailing columns so badge, run count, and diffstat line up row to row. */
+.ov2-report-card__head {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(8rem, 1fr) 6.5rem 4.5rem 14rem 0.75rem;
+  align-items: center;
+  gap: 6px 12px;
+  box-sizing: border-box;
+  padding: 10px 14px;
+  list-style: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+}
+
+/* Run notes and the journal are single-title cards, not task rows. */
+.ov2-report-notes > .ov2-report-card__head,
+.ov2-report-journal > .ov2-report-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 12px;
+}
+
+.ov2-report-card__head::-webkit-details-marker {
+  display: none;
+}
+
+.ov2-report-card__head::marker {
+  content: none;
+}
+
+.ov2-report-card__id {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  color: var(--mn-fg-muted);
+  overflow-wrap: anywhere;
+}
+
+.ov2-report-card__title,
+.ov2-report-task__title {
+  min-width: 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ov2-report-card__meta,
+.ov2-report-task__runs {
+  color: var(--mn-fg-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ov2-report-notes > .ov2-report-card__head .ov2-report-card__title {
+  flex: 1 1 12rem;
+}
+
+.ov2-report-card__chevron {
+  justify-self: end;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 1.5px solid var(--mn-fg-muted);
+  border-bottom: 1.5px solid var(--mn-fg-muted);
+  transform: rotate(-45deg);
+  transform-origin: 60% 60%;
+}
+
+.ov2-report-notes > .ov2-report-card__head > .ov2-report-card__chevron,
+.ov2-report-journal > .ov2-report-card__head > .ov2-report-card__chevron {
+  margin-left: auto;
+}
+
+.ov2-report-card[open] > .ov2-report-card__head > .ov2-report-card__chevron {
+  transform: rotate(45deg);
+}
+
+.ov2-report-card__body {
+  min-width: 0;
+  padding: 0 14px 14px;
+}
+
+.ov2-report-card__body > .ov2-report {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* The card summary already names the journal; hide the inner heading. */
+.ov2-report-card__body .ov2-report__title {
+  display: none;
+}
+
+.ov2-report-task__body {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  align-items: start;
+  gap: 12px 28px;
+  padding-top: 12px;
+  border-top: 1px solid var(--mn-border);
+}
+
+.ov2-report-task__body > .ov2-report-screen__quiet {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+}
+
+.ov2-report-task__subhead {
+  margin: 0 0 8px;
+  color: var(--mn-fg-muted);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+/* ── Runs ──────────────────────────────────────────────────────────────── */
+
+.ov2-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov2-run {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ov2-run + .ov2-run {
+  padding-top: 10px;
+  border-top: 1px dashed var(--mn-border);
+}
+
+.ov2-run__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.ov2-run__n {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--mn-surface-1);
+  color: var(--mn-fg-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov2-run__role {
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ov2-run__tag,
+.ov2-run__needs {
+  margin: 0;
+  color: var(--mn-fg-muted);
+  font-size: 0.6875rem;
+}
+
+.ov2-run__needs {
+  font-size: 0.75rem;
+}
+
+/* ── Diffstat and files ────────────────────────────────────────────────── */
+
+.ov2-diffstat {
+  display: grid;
+  /* Fixed inner columns so +/− counts line up row to row without flex min-width gaps. */
+  grid-template-columns: minmax(4rem, max-content) 6ch 4ch max-content;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.ov2-diffstat__files {
+  color: var(--mn-fg-muted);
+}
+
+.ov2-diffstat > .ov2-stat--add,
+.ov2-diffstat > .ov2-stat--del {
+  text-align: right;
+}
+
+.ov2-diffbar {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.ov2-diffbar__block {
+  width: 7px;
+  height: 7px;
+  border-radius: 1px;
+  background: var(--mn-border-strong);
+}
+
+.ov2-diffbar__block--add {
+  background: var(--mn-success);
+}
+
+.ov2-diffbar__block--del {
+  background: var(--mn-danger);
+}
+
+.ov2-report-filelist {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov2-report-file {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+  min-width: 0;
+}
+
+.ov2-report-file + .ov2-report-file {
+  border-top: 1px solid color-mix(in srgb, var(--mn-border) 55%, transparent);
+}
+
+.ov2-report-file__path {
+  min-width: 0;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.ov2-report-file__dir {
+  color: var(--mn-fg-subtle);
+}
+
+.ov2-report-file__name {
+  color: var(--mn-fg);
+}
+
+.ov2-report-file__stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov2-report-file__binary {
+  color: var(--mn-fg-muted);
+}
+
+/* ── Attempt write-ups (shared with the task-card Work list) ───────────── */
+
+.ov2-attempt-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  align-items: baseline;
+  margin: 0;
+  color: var(--mn-fg-muted);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.4;
+}
+
+.ov2-attempt-facts__sep {
+  color: var(--mn-fg-subtle);
+}
+
+.ov2-attempt-blockers {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: 90ch;
+}
+
+.ov2-attempt-blockers li {
+  padding: 1px 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ov2-attempt-blockers__more {
+  color: var(--mn-fg-muted);
+  font-size: 0.75rem;
+}
+
+.ov2-attempt-writeup {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.ov2-attempt-writeup__scent,
+.ov2-attempt-writeup__body {
+  margin: 0;
+  max-width: 90ch;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.ov2-attempt-writeup__scent {
+  color: var(--mn-fg-muted);
+}
+
+/* Once the full write-up is open, the scent is the same first sentence. Hide it. */
+.ov2-attempt-writeup:has(.ov2-attempt-writeup__full[open]) .ov2-attempt-writeup__scent,
+.ov2-attempt-writeup:has(.ov2-attempt-writeup__full[open]) .ov2-work__scent {
+  display: none;
+}
+
+.ov2-attempt-writeup__body {
+  white-space: pre-wrap;
+}
+
+/* ── Evidence (saved reports and test output) ──────────────────────────── */
+
+.ov2-report-files,
+.ov2-report-evidence__values {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov2-report-files li,
+.ov2-report-evidence__values li {
+  padding: 2px 0;
+  overflow-wrap: anywhere;
+}
+
+.ov2-report-files li + li,
+.ov2-report-evidence__values li + li {
+  margin-top: 2px;
+}
+
+.ov2-report-files li {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.ov2-report-evidence__values li {
+  font-size: 0.8125rem;
+  line-height: 1.5;
+}
+
+.ov2-report-evidence--diff {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ov2-report-badge {
+  display: inline-block;
+  flex: none;
+  justify-self: start;
+  padding: 2px 7px;
+  border: 1px solid var(--mn-border);
+  border-radius: 5px;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  white-space: nowrap;
+  color: var(--mn-fg-muted);
+}
+
+.ov2-report-badge[data-status='pass'],
+.ov2-report-badge[data-status='merged'] {
+  border-color: color-mix(in srgb, var(--mn-success) 45%, var(--mn-border));
+  color: var(--mn-success-ink);
+}
+
+.ov2-report-badge[data-status='fail'],
+.ov2-report-badge[data-status='crashed'] {
+  border-color: color-mix(in srgb, var(--mn-danger) 45%, var(--mn-border));
+  color: var(--mn-danger-ink);
+}
+
+.ov2-report-badge[data-status='blocked'],
+.ov2-report-badge[data-status='abandoned'],
+.ov2-report-badge[data-status='skipped'],
+.ov2-report-badge[data-status='timeout'] {
+  border-color: var(--mn-warning-border);
+  background: var(--mn-warning-soft);
+  color: var(--mn-fg);
+}
+
+.ov2-report-disclosure {
+  min-width: 0;
+}
+
+.ov2-report-disclosure > summary {
+  cursor: pointer;
+  padding: 4px 0;
+  box-sizing: border-box;
+  color: var(--mn-fg-muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.ov2-report-disclosure > summary:focus-visible,
+.ov2-report-card__head:focus-visible {
+  outline: 2px solid var(--mn-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.ov2-report-evidence {
+  min-width: 0;
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.ov2-report-evidence__fields {
+  margin: 0;
+}
+
+.ov2-report-evidence__field {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 16px;
+  padding: 10px 0;
+}
+
+.ov2-report-evidence__field dt {
+  color: var(--mn-fg-muted);
+  font-size: 0.75rem;
+}
+
+.ov2-report-evidence__field dd {
+  margin: 0;
+  min-width: 0;
+}
+
+.ov2-report-evidence__list {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.ov2-report-evidence__list li + li {
+  margin-top: 8px;
+}
+
+.ov2-report-evidence__log {
+  box-sizing: border-box;
+  max-width: 100%;
+  max-height: 20rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  background: var(--mn-surface-0);
+  border: 1px solid var(--mn-border);
+  border-radius: 6px;
+  font: 0.6875rem/1.6 var(--font-mono, monospace);
+}
+
+.ov2-report-screen__markdown {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.ov2-report-notes .ov2-report-card__body {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.ov2-report-notes__content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--mn-border);
+}
+
+.ov2-report-notes__section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ov2-report-notes__section > .ov2-report-task__subhead {
+  margin: 0;
+}
+
+.ov2-report-notes__lede {
+  margin: 0;
+  max-width: 72ch;
+  font-size: 0.8125rem;
+  line-height: 1.55;
+  color: var(--mn-fg);
+  overflow-wrap: anywhere;
+}
+
+.ov2-report-notes__shipped {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov2-report-notes__shipped-row {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(0, 1fr);
+  align-items: baseline;
+  gap: 8px 12px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--mn-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--mn-surface-0);
+}
+
+.ov2-report-notes__shipped-title {
+  min-width: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.ov2-report-notes__tasks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.ov2-report-notes__task {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--mn-border);
+  border-radius: var(--radius-sm, 6px);
+  background: var(--mn-surface-0);
+}
+
+.ov2-report-notes__task-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+
+.ov2-report-notes__task-extra,
+.ov2-report-notes__legacy {
+  min-width: 0;
+}
+
+.ov2-report-notes__legacy .ov2-spec__prose,
+.ov2-report-notes__task-extra .ov2-spec__prose,
+.ov2-report-notes__section > .ov2-spec__prose {
+  max-width: 100%;
+}
+
+.ov2-report-screen__markdown > div {
+  max-width: 100%;
+}
+
+.ov2-report-screen__ledger {
+  margin: 0;
+}
+
+/* ── Git actions ───────────────────────────────────────────────────────── */
+
 .ov2-report-screen__commit {
   position: relative;
   display: inline-flex;
-  margin-left: auto;
 }
 
 .ov2-report-screen__commit-caret {
   box-sizing: border-box;
-  min-width: 32px;
-  min-height: var(--touch-min, 44px);
-  padding: 0 8px;
+  min-width: 28px;
+  min-height: 32px;
+  padding: 0 6px;
   border: 1px solid var(--mn-border);
   border-left: 0;
   border-radius: 0 var(--radius-sm, 6px) var(--radius-sm, 6px) 0;
-  background: var(--mn-surface-1);
+  background: var(--mn-bg);
   color: var(--mn-fg);
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -2761,16 +3498,18 @@ select.ov2-create__input {
   border-bottom-right-radius: 0;
 }
 
+/* The bar sits at the top of the pane, so the menu drops down from it. */
 .ov2-report-screen__commit-menu {
   position: absolute;
   right: 0;
-  bottom: calc(100% + 4px);
+  top: calc(100% + 4px);
   z-index: 20;
   min-width: 220px;
   padding: 4px;
   border: 1px solid var(--mn-border);
   border-radius: var(--radius-sm, 6px);
   background: var(--mn-surface-1);
+  box-shadow: var(--shadow-md, 0 8px 24px rgb(0 0 0 / 28%));
 }
 
 .ov2-report-screen__commit-menuitem {
@@ -2803,22 +3542,105 @@ select.ov2-create__input {
 }
 
 .ov2-report-screen__git-status[data-kind='ok'] {
-  color: var(--mn-success);
+  color: var(--mn-success-ink);
 }
 
 .ov2-report-screen__git-status[data-kind='err'] {
-  color: var(--mn-danger);
+  color: var(--mn-danger-ink);
 }
 
 .ov2-report-screen__git-done {
-  margin-left: auto;
   font-size: 13px;
   color: var(--mn-fg-muted);
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .ov2-report-card:not([open]) > .ov2-report-card__head:hover {
+    background: color-mix(in srgb, var(--mn-fg) 5%, transparent);
+  }
+
+  .ov2-report-disclosure > summary:hover {
+    color: var(--mn-fg);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ov2-report-card {
+    transition: border-color var(--duration-fast, 0.15s) var(--ease-out),
+      background-color var(--duration-fast, 0.15s) var(--ease-out);
+  }
+
+  .ov2-report-card__chevron {
+    transition: transform var(--duration-fast, 0.15s) var(--ease-out);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .ov2-report-screen__commit-menu {
+  .ov2-report-screen__commit-menu,
+  .ov2-report-card,
+  .ov2-report-card__chevron {
+    transition: none;
     animation: none;
+  }
+}
+
+/* Below this the diffstat and the run count cannot share a line with a title. */
+@container (max-width: 720px) {
+  .ov2-report-card__head {
+    grid-template-columns: 4.5rem minmax(0, 1fr) 0.75rem;
+  }
+
+  .ov2-report-card__head > .ov2-report-badge,
+  .ov2-report-task__runs,
+  .ov2-report-card__head > .ov2-diffstat {
+    grid-column: 2;
+  }
+
+  .ov2-report-card__head > .ov2-report-card__chevron {
+    grid-column: 3;
+    grid-row: 1 / -1;
+    align-self: center;
+  }
+
+  .ov2-attention__row {
+    grid-template-columns: 4.5rem minmax(0, 1fr) auto;
+  }
+
+  .ov2-attention__action {
+    grid-column: 2 / -1;
+    justify-self: start;
+    margin-top: 4px;
+  }
+}
+
+@container (max-width: 520px) {
+  .ov2-report-card__head,
+  .ov2-attention__row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ov2-report-card__head > .ov2-report-badge,
+  .ov2-report-task__runs,
+  .ov2-report-card__head > .ov2-diffstat,
+  .ov2-attention__main,
+  .ov2-attention__row > .ov2-report-badge,
+  .ov2-attention__action {
+    grid-column: 1;
+  }
+
+  .ov2-report-card__chevron {
+    display: none;
+  }
+
+  .ov2-report-evidence__field {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+}
+
+@media (max-width: 640px) {
+  .ov2-report-screen {
+    gap: 16px;
   }
 }
 
@@ -2930,52 +3752,3 @@ select.ov2-create__input {
     max-width: none;
   }
 }
-
-/* End-of-run review: flat task rows, readable evidence, progressive diagnostics. */
-.ov2-report-screen { max-width: min(64rem, 100%); gap: 32px; padding: 32px; container-type: inline-size; }
-.ov2-report-screen__copy { gap: 12px; }
-.ov2-report-screen__title { font-size: 1.5rem; }
-.ov2-report-screen__eyebrow { margin: 0; color: var(--mn-fg-muted); font-size: .8125rem; font-weight: 600; overflow-wrap: anywhere; }
-.ov2-report-screen__summary { margin: 4px 0 0; max-width: 72ch; font-size: .875rem; line-height: 1.6; }
-.ov2-report-screen__stats { padding: 16px 0; border-block: 1px solid var(--mn-border); }
-.ov2-report-screen__section-title { font-size: 1rem; margin-bottom: 4px; }
-.ov2-report-screen__section { gap: 12px; }
-.ov2-report-screen__markdown { width: 100%; max-width: none; border: 0; background: none; padding: 0; }
-.ov2-report-screen__markdown > div { max-width: 72ch; }
-.ov2-report-screen__footer { padding-top: 20px; }
-.ov2-report-screen__footer button { min-height: 44px; }
-.ov2-report-disclosure { min-width: 0; border-bottom: 1px solid var(--mn-border); }
-.ov2-report-disclosure > summary { cursor: pointer; padding: 12px 0; min-height: 44px; box-sizing: border-box; color: var(--mn-fg); font-size: .8125rem; overflow-wrap: anywhere; }
-.ov2-report-disclosure > summary:focus-visible { outline: 2px solid var(--mn-accent); outline-offset: 3px; border-radius: 4px; }
-.ov2-report-task > summary { display: flex; align-items: baseline; gap: 12px; }
-.ov2-report-task > summary::before { content: '\203A'; color: var(--mn-fg-muted); font-size: 1rem; }
-.ov2-report-task[open] > summary::before { content: '\2304'; }
-.ov2-report-task__title { flex: 1; min-width: 0; font-weight: 600; }
-.ov2-report-task__count { color: var(--mn-fg-muted); font-size: .75rem; }
-.ov2-report-task__body { padding: 8px 0 24px 24px; }
-.ov2-report-task__body p { max-width: 72ch; font-size: .875rem; line-height: 1.6; overflow-wrap: anywhere; }
-.ov2-report-attempt { padding: 16px 0; border-top: 1px solid var(--mn-border); }
-.ov2-report-attempt__heading { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0; font-size: .875rem; font-weight: 600; }
-.ov2-report-badge { display: inline-block; align-self: flex-start; flex: none; padding: 3px 8px; border: 1px solid var(--mn-border); border-radius: 5px; font-size: .6875rem; line-height: 1.4; color: var(--mn-fg-muted); }
-.ov2-report-badge[data-status='pass'], .ov2-report-badge[data-status='merged'] { color: var(--mn-success); }
-.ov2-report-badge[data-status='fail'], .ov2-report-badge[data-status='crashed'] { color: var(--mn-danger); }
-.ov2-report-badge[data-status='blocked'], .ov2-report-badge[data-status='abandoned'], .ov2-report-badge[data-status='timeout'] { color: var(--mn-warning); }
-.ov2-report-evidence { min-width: 0; font-size: .8125rem; line-height: 1.6; overflow-wrap: anywhere; white-space: pre-wrap; }
-.ov2-report-evidence__fields { margin: 0; }
-.ov2-report-evidence__field { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 16px; padding: 10px 0; }
-.ov2-report-evidence__field dt { color: var(--mn-fg-muted); font-size: .75rem; }
-.ov2-report-evidence__field dd { margin: 0; min-width: 0; }
-.ov2-report-evidence__list { margin: 0; padding-left: 20px; }
-.ov2-report-evidence__list li + li { margin-top: 8px; }
-.ov2-report-evidence__log { box-sizing: border-box; max-width: 100%; max-height: 24rem; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px; background: var(--mn-surface-1); border: 1px solid var(--mn-border); border-radius: 6px; font: .75rem/1.6 var(--font-mono, monospace); }
-@container (max-width: 520px) {
-  .ov2-report-task > summary { flex-wrap: wrap; gap: 8px; }
-  .ov2-report-task__title { flex-basis: 65%; }
-  .ov2-report-task__count { margin-left: auto; }
-  .ov2-report-task__body { padding-left: 0; }
-  .ov2-report-evidence__field { grid-template-columns: minmax(0, 1fr); gap: 4px; }
-  .ov2-report-screen__commit { margin-left: 0; }
-}
-@media (max-width: 640px) { .ov2-report-screen { padding: 20px 16px; gap: 24px; } }
-@media (hover: hover) { .ov2-report-disclosure > summary:hover { color: var(--mn-accent); } }
-

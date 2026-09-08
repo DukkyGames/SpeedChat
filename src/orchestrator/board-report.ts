@@ -1,5 +1,4 @@
-import type { BoardState, TaskState } from '../../server/orchestrator/core/types';
-import { setAssistantBubbleContent } from '../markdown/renderer.ts';
+import type { Attempt, BoardState, TaskState } from '../../server/orchestrator/core/types';
 import { gitCommit, gitPush } from '../state/git-api.ts';
 import {
   cleanupBoardWorktrees,
@@ -12,7 +11,23 @@ import { refreshFileTreeViaBridge } from '../ui/file-tree-refresh-bridge.ts';
 import { createChatWithMode } from '../ui/sidebar.ts';
 import { countPhase, renderRunLedger } from './board-render';
 import { el } from './dom';
-import { renderReportEvidence, reportBadge, reportDisclosure } from './report-evidence';
+import {
+  clearAttemptReportUiForTests,
+  renderBlockerList,
+  renderCollapsedWriteUp,
+} from './attempt-report';
+import { collectAttemptFacts, humanizeAbandonReason } from './attempt-scan';
+import {
+  clearReportFilesForTests,
+  loadMergedTaskFiles,
+  onTaskFilesProgress,
+  renderDiffStat,
+  renderFileTable,
+  taskFileSet,
+  taskFilesPending,
+} from './report-files';
+import { reportBadge, reportDisclosure } from './report-evidence';
+import { renderRunNotesMarkdown } from './report-notes';
 
 /** Cap the report excerpt so the chip stays within typical text-attachment size. */
 const FOLLOW_UP_REPORT_MAX_CHARS = 4000;
@@ -43,6 +58,8 @@ export interface BoardReportActions {
   dismiss: () => void;
   reopen: () => void;
   fixFinal: () => void;
+  /** Wipe one unfinished task back to Planned. Merged cards are never offered it. */
+  resetTask: (taskId: string) => void;
 }
 
 interface GitLanding {
@@ -66,9 +83,11 @@ export function clearBoardReportStateForTests(): void {
   gitByBoard.clear();
   landedByBoard.clear();
   clearedByBoard.clear();
+  clearAttemptReportUiForTests();
+  clearReportFilesForTests();
 }
 
-// ── Report ───────────────────────────────────────────────────────────────────
+// -- Report -------------------------------------------------------------------
 
 export function renderBoardReport(
   state: BoardState,
@@ -79,49 +98,43 @@ export function renderBoardReport(
   const wrap = el('section', 'ov2-report-screen');
   wrap.setAttribute('aria-label', 'Run report');
 
-  wrap.appendChild(renderCopy(state));
+  wrap.appendChild(renderHeader(state, markdown, actions));
+
+  const status = el('p', 'ov2-report-screen__git-status');
+  status.hidden = true;
+  status.setAttribute('role', 'status');
+  wrap.appendChild(status);
+
   wrap.appendChild(renderStats(state));
 
-  const issues = collectIssues(state);
-  if (issues.length > 0 || state.finalTest?.outcome === 'fail') {
-    wrap.appendChild(renderIssues(state, issues));
-  }
+  const attention = renderAttention(state, actions);
+  if (attention) wrap.appendChild(attention);
 
-  wrap.appendChild(renderTaskResults(state));
-  const verification = el('section', 'ov2-report-screen__section');
-  verification.appendChild(el('h4', 'ov2-report-screen__section-title', 'Integration check'));
-  verification.appendChild(reportBadge(state.finalTest?.outcome || 'not recorded'));
-  if (state.finalTest?.evidence) verification.appendChild(renderReportEvidence(state.finalTest.evidence));
-  if (state.finalTest?.runInstructions) {
-    verification.appendChild(el('pre', 'ov2-report-evidence__log', state.finalTest.runInstructions));
-  }
-  wrap.appendChild(verification);
-  wrap.appendChild(renderMarkdown(markdown, loading));
+  wrap.appendChild(renderTasksSection(state));
+  wrap.appendChild(renderReferenceSection(state, markdown, loading, actions));
 
-  const ledger = renderRunLedger(state, { rerun: () => actions.reopen() });
-  if (ledger) {
-    ledger.classList.add('ov2-report-screen__ledger');
-    wrap.appendChild(ledger);
-  }
-
-  wrap.appendChild(renderFooter(state, markdown, actions));
   void hydrateGitStats(wrap, state);
+  void hydrateTaskFiles(wrap, state);
   return wrap;
 }
 
-// ── Copy ─────────────────────────────────────────────────────────────────────
+// -- Header -------------------------------------------------------------------
 
-function renderCopy(state: BoardState): HTMLElement {
-  const block = el('div', 'ov2-report-screen__copy');
-  block.appendChild(el('p', 'ov2-report-screen__eyebrow', state.name || state.boardId));
-  const title = el('h3', 'ov2-report-screen__title');
-  title.textContent = titleFor(state);
-  const subtitle = el('p', 'ov2-report-screen__lede');
-  subtitle.textContent = ledeFor(state);
-  block.appendChild(title);
-  block.appendChild(subtitle);
-  if (state.runSummary) block.appendChild(el('p', 'ov2-report-screen__summary', state.runSummary));
-  return block;
+function renderHeader(
+  state: BoardState,
+  markdown: string | null,
+  actions: BoardReportActions,
+): HTMLElement {
+  const bar = el('header', 'ov2-report-screen__bar');
+  const copy = el('div', 'ov2-report-screen__copy');
+  copy.appendChild(el('p', 'ov2-report-screen__eyebrow', state.name || state.boardId));
+  copy.appendChild(el('h3', 'ov2-report-screen__title', titleFor(state)));
+  copy.appendChild(
+    el('p', 'ov2-report-screen__lede', state.runSummary?.trim() || ledeFor(state)),
+  );
+  bar.appendChild(copy);
+  bar.appendChild(renderActions(state, markdown, actions));
+  return bar;
 }
 
 function titleFor(state: BoardState): string {
@@ -131,200 +144,396 @@ function titleFor(state: BoardState): string {
 }
 
 function ledeFor(state: BoardState): string {
-  if (state.finalTest?.outcome === 'fail') {
-    return 'Tasks merged, but the final integration test failed. Fix the failure, or rerun abandoned work.';
-  }
-  if (state.finished || state.stopReason === 'complete') {
-    return 'Review the summary, merge into your branch, or start a follow-up chat.';
-  }
-  return 'The board was stopped before it finished. The report is what the journal recorded up to that point.';
+  if (state.finalTest?.outcome === 'fail') return 'Tasks merged, but the integration check failed.';
+  if (state.finished || state.stopReason === 'complete') return 'Every task reached a decision.';
+  return 'Stopped before it finished. This is what the journal recorded.';
 }
 
+// -- Stats --------------------------------------------------------------------
+
+type StatTone = 'neutral' | 'good' | 'warn' | 'bad';
+
+function statTile(
+  value: string,
+  label: string,
+  tone: StatTone = 'neutral',
+  fill?: (node: HTMLElement) => void,
+): HTMLElement {
+  const tile = el('div', 'ov2-stat-tile');
+  tile.dataset.tone = tone;
+  const slot = el('span', 'ov2-stat-tile__value');
+  if (fill) fill(slot);
+  else slot.textContent = value;
+  tile.appendChild(slot);
+  tile.appendChild(el('span', 'ov2-stat-tile__label', label));
+  return tile;
+}
+
+/** The handful of numbers that answer "what happened" without opening anything. */
 function renderStats(state: BoardState): HTMLElement {
   const row = el('div', 'ov2-report-screen__stats');
   row.setAttribute('aria-label', 'Run stats');
-  const attempts = totalAttempts(state);
+  const merged = countPhase(state, 'merged');
+  const abandoned = countPhase(state, 'abandoned');
+  const skipped = countPhase(state, 'skipped');
+  const runs = totalAttempts(state);
   const git = gitByBoard.get(state.boardId);
-  const cells: Array<{ value: string; label: string }> = [
-    { value: String(countPhase(state, 'merged')), label: 'merged' },
-    { value: String(countPhase(state, 'abandoned')), label: 'abandoned' },
-    { value: String(countPhase(state, 'skipped')), label: 'skipped' },
-    { value: String(attempts), label: attempts === 1 ? 'attempt' : 'attempts' },
-  ];
+
+  row.appendChild(statTile(String(merged), 'merged', merged > 0 ? 'good' : 'neutral'));
+  if (abandoned > 0) row.appendChild(statTile(String(abandoned), 'abandoned', 'warn'));
+  if (skipped > 0) row.appendChild(statTile(String(skipped), 'skipped', 'warn'));
+  row.appendChild(statTile(String(runs), runs === 1 ? 'run' : 'runs'));
+
   if (git?.loading) {
-    cells.push({ value: '…', label: 'files' });
+    row.appendChild(statTile('...', 'files'));
   } else if (git && git.filesTouched != null) {
-    cells.push({ value: String(git.filesTouched), label: 'files' });
+    row.appendChild(statTile(String(git.filesTouched), 'files'));
     if (git.additions != null && git.deletions != null) {
-      cells.push({ value: `+${git.additions} / −${git.deletions}`, label: 'lines' });
+      const additions = git.additions;
+      const deletions = git.deletions;
+      row.appendChild(
+        statTile('', 'lines', 'neutral', (slot) => {
+          slot.appendChild(el('span', 'ov2-stat ov2-stat--add', `+${additions}`));
+          slot.appendChild(el('span', 'ov2-stat ov2-stat--del', `−${deletions}`));
+        }),
+      );
     }
   }
-  cells.forEach((cell, index) => {
-    if (index > 0) {
-      const sep = el('span', 'ov2-report-screen__stat-sep', '·');
-      sep.setAttribute('aria-hidden', 'true');
-      row.appendChild(sep);
-    }
-    const node = el('span', 'ov2-report-screen__stat');
-    node.appendChild(el('span', 'ov2-report-screen__stat-value', cell.value));
-    node.appendChild(el('span', 'ov2-report-screen__stat-label', cell.label));
-    row.appendChild(node);
-  });
+
+  const final = state.finalTest?.outcome;
+  row.appendChild(
+    statTile(
+      final === 'pass' ? 'Pass' : final === 'fail' ? 'Fail' : '—',
+      'integration',
+      final === 'pass' ? 'good' : final === 'fail' ? 'bad' : 'neutral',
+    ),
+  );
   return row;
 }
 
-// ── Issues ───────────────────────────────────────────────────────────────────
+// -- Needs attention ----------------------------------------------------------
 
-function collectIssues(state: BoardState): Array<{ task: TaskState; reason: string }> {
-  const issues: Array<{ task: TaskState; reason: string }> = [];
+/** The most recent blocker any attempt journaled. */
+function lastBlocker(task: TaskState): string | null {
+  for (let i = task.attempts.length - 1; i >= 0; i -= 1) {
+    const [first] = collectAttemptFacts(task.attempts[i].evidence).blockers;
+    if (first) return first;
+  }
+  return null;
+}
+
+/** Why this card is on the list, in the fewest lines that stay actionable. */
+function attentionIssues(task: TaskState): string[] {
+  const lines: string[] = [];
+  if (task.skippedBy) lines.push(`Waiting on ${task.skippedBy}, which did not finish.`);
+  else if (task.abandonedReason) lines.push(humanizeAbandonReason(task.abandonedReason));
+  if (task.mergeConflicts?.length) {
+    lines.push(`Merge conflicts in ${[...new Set(task.mergeConflicts)].join(', ')}`);
+  }
+  const blocker = lastBlocker(task);
+  if (blocker && !lines.includes(blocker)) lines.push(blocker);
+  return lines.length ? lines : ['This task did not finish.'];
+}
+
+function renderAttention(state: BoardState, actions: BoardReportActions): HTMLElement | null {
+  const rows: HTMLElement[] = [];
+  if (state.finalTest?.outcome === 'fail') rows.push(renderFinalRow(state, actions));
   for (const id of state.taskOrder) {
     const task = state.tasks.get(id);
     if (!task) continue;
-    if (task.phase === 'abandoned') {
-      issues.push({
-        task,
-        reason:
-          task.abandonedReason === 'user'
-            ? 'Stopped by you'
-            : task.abandonedReason || 'Abandoned',
-      });
-      continue;
-    }
-    if (task.phase === 'skipped') {
-      issues.push({
-        task,
-        reason: task.skippedBy ? `Stranded by ${task.skippedBy}` : 'Skipped',
-      });
-    }
+    if (task.phase !== 'abandoned' && task.phase !== 'skipped') continue;
+    rows.push(renderAttentionRow(task, actions));
   }
-  return issues;
-}
+  if (!rows.length) return null;
 
-function renderIssues(
-  state: BoardState,
-  issues: Array<{ task: TaskState; reason: string }>,
-): HTMLElement {
-  const section = el('section', 'ov2-report-screen__section');
-  section.appendChild(el('h4', 'ov2-report-screen__section-title', 'Needs attention'));
-  if (state.finalTest?.outcome === 'fail') {
-    const summary = el('p', 'ov2-report-screen__final-fail');
-    const evidence = state.finalTest.evidence;
-    const text =
-      (evidence &&
-        typeof evidence === 'object' &&
-        typeof (evidence as { summary?: unknown }).summary === 'string' &&
-        String((evidence as { summary: string }).summary).trim()) ||
-      state.runSummary ||
-      'The final integration test failed.';
-    summary.textContent = text;
-    section.appendChild(summary);
-    if (state.finalTest.runInstructions) {
-      const run = el('p', 'ov2-report-screen__run');
-      run.appendChild(el('span', 'ov2-report-screen__run-label', 'Run it yourself: '));
-      run.appendChild(el('code', 'ov2-report-screen__run-cmd', state.finalTest.runInstructions));
-      section.appendChild(run);
-    }
-  }
-  if (issues.length === 0) {
-    section.appendChild(el('p', 'ov2-report-screen__quiet', 'No abandoned or skipped tasks.'));
-    return section;
-  }
-  const list = el('ul', 'ov2-report-screen__issues');
-  for (const { task, reason } of issues) {
-    const li = el('li', 'ov2-report-screen__issue');
-    li.appendChild(el('span', 'ov2-report-screen__issue-id', task.id));
-    li.appendChild(el('span', 'ov2-report-screen__issue-text', `${task.title}: ${reason}`));
-    list.appendChild(li);
-  }
+  const section = el('section', 'ov2-report-screen__group ov2-report-screen__group--attention');
+  section.appendChild(sectionTitle('Needs attention', rows.length));
+  const list = el('ul', 'ov2-attention');
+  for (const row of rows) list.appendChild(row);
   section.appendChild(list);
   return section;
 }
 
-function renderTaskResults(state: BoardState): HTMLElement {
-  const section = el('section', 'ov2-report-screen__section');
-  section.appendChild(el('h4', 'ov2-report-screen__section-title', 'Task results'));
+function renderAttentionRow(task: TaskState, actions: BoardReportActions): HTMLElement {
+  const row = el('li', 'ov2-attention__row');
+  row.dataset.taskId = task.id;
+  row.appendChild(el('span', 'ov2-attention__id', task.id));
+
+  const main = el('div', 'ov2-attention__main');
+  main.appendChild(el('span', 'ov2-attention__title', task.title));
+  for (const line of attentionIssues(task)) {
+    main.appendChild(el('p', 'ov2-attention__issue', line));
+  }
+  row.appendChild(main);
+  row.appendChild(reportBadge(task.phase));
+
+  const reset = btn('ov2-attention__action board-btn board-btn--compact', 'Reset task');
+  reset.title =
+    `Reset ${task.id}: delete its attempts, transcript, worktree, and branch, ` +
+    'and return the card to Planned. Integration is not changed.';
+  reset.addEventListener('click', () => actions.resetTask(task.id));
+  row.appendChild(reset);
+  return row;
+}
+
+function renderFinalRow(state: BoardState, actions: BoardReportActions): HTMLElement {
+  const row = el('li', 'ov2-attention__row ov2-attention__row--final');
+  row.appendChild(el('span', 'ov2-attention__id', 'Final'));
+
+  const main = el('div', 'ov2-attention__main');
+  main.appendChild(el('span', 'ov2-attention__title', 'Integration check'));
+  main.appendChild(el('p', 'ov2-attention__issue', finalFailText(state)));
+  if (state.finalTest?.runInstructions) {
+    const run = el('p', 'ov2-attention__run');
+    run.appendChild(el('code', 'ov2-report-screen__run-cmd', state.finalTest.runInstructions));
+    main.appendChild(run);
+  }
+  row.appendChild(main);
+  row.appendChild(reportBadge('fail'));
+
+  const fix = btn('ov2-attention__action board-btn board-btn--compact', 'Fix and re-verify');
+  fix.title = 'Add a fix task and run the integration check again';
+  fix.addEventListener('click', () => actions.fixFinal());
+  row.appendChild(fix);
+  return row;
+}
+
+function finalFailText(state: BoardState): string {
+  const evidence = state.finalTest?.evidence;
+  const summary =
+    evidence &&
+    typeof evidence === 'object' &&
+    typeof (evidence as { summary?: unknown }).summary === 'string'
+      ? String((evidence as { summary: string }).summary).trim()
+      : '';
+  return summary || 'The final integration test failed.';
+}
+
+// -- Tasks --------------------------------------------------------------------
+
+function sectionTitle(text: string, count: number): HTMLElement {
+  const heading = el('h4', 'ov2-report-screen__section-title', text);
+  heading.appendChild(el('span', 'ov2-report-screen__count', String(count)));
+  return heading;
+}
+
+/** Native <details> so several rows can stay open without a modal or accordion. */
+function makeReportCard(options: {
+  className?: string;
+  open?: boolean;
+  /** Mount the body now (open cards, or content that must stay in the DOM while closed). */
+  eager?: boolean;
+  fillHead: (head: HTMLElement) => void;
+  body: () => HTMLElement;
+}): HTMLDetailsElement {
+  const card = el(
+    'details',
+    options.className ? `ov2-report-card ${options.className}` : 'ov2-report-card',
+  );
+  const head = el('summary', 'ov2-report-card__head');
+  options.fillHead(head);
+  const chevron = el('span', 'ov2-report-card__chevron');
+  chevron.setAttribute('aria-hidden', 'true');
+  head.appendChild(chevron);
+  card.appendChild(head);
+
+  const mount = (): void => {
+    for (const child of card.children) {
+      if (child.classList.contains('ov2-report-card__body')) return;
+    }
+    const body = options.body();
+    body.classList.add('ov2-report-card__body');
+    card.appendChild(body);
+  };
+
+  if (options.open) card.open = true;
+  if (options.open || options.eager) mount();
+  else {
+    card.addEventListener('toggle', () => {
+      if (card.open) mount();
+    });
+  }
+  return card;
+}
+
+function renderTasksSection(state: BoardState): HTMLElement {
+  const section = el('section', 'ov2-report-screen__group ov2-report-screen__group--tasks');
+  section.appendChild(sectionTitle('Tasks', state.taskOrder.length));
+  if (!state.taskOrder.length) {
+    section.appendChild(el('p', 'ov2-report-screen__quiet', 'No tasks recorded for this run.'));
+    return section;
+  }
+  const stack = el('div', 'ov2-report-screen__cards');
   for (const id of state.taskOrder) {
     const task = state.tasks.get(id);
-    if (!task) continue;
-    const details = reportDisclosure('', () => {
-      const body = el('div', 'ov2-report-task__body');
-      if (task.abandonedReason) body.appendChild(el('p', '', task.abandonedReason === 'user' ? 'Stopped by you. Review the attempts before restarting this task.' : task.abandonedReason));
-      if (task.skippedBy) body.appendChild(el('p', '', `Waiting on ${task.skippedBy}. Resolve that task before retrying.`));
-      if (task.mergedSha) body.appendChild(el('p', 'ov2-report-screen__quiet', `Merged commit ${task.mergedSha}`));
-      if (task.mergeConflicts?.length) body.appendChild(renderReportEvidence({ mergeConflicts: task.mergeConflicts }));
-      task.attempts.forEach((attempt, index) => {
-        const article = el('article', 'ov2-report-attempt');
-        const role = attempt.role.charAt(0).toUpperCase() + attempt.role.slice(1);
-        const heading = el('h5', 'ov2-report-attempt__heading', `${index + 1}. ${role}${attempt.retired ? ' · Previous run' : ''}`);
-        heading.appendChild(reportBadge(attempt.outcome || (attempt.ended ? 'ended' : 'in progress')));
-        article.appendChild(heading);
-        if (attempt.summary) article.appendChild(el('p', '', attempt.summary));
-        if (attempt.evidence) article.appendChild(renderReportEvidence(attempt.evidence));
-        article.appendChild(reportDisclosure('Attempt details', () => renderReportEvidence({ attemptId: attempt.attemptId, worktree: attempt.worktree, seedKind: attempt.seedKind })));
-        body.appendChild(article);
-      });
-      if (task.abandonedEvidence) body.appendChild(reportDisclosure('Evidence at abandonment', () => renderReportEvidence(task.abandonedEvidence)));
-      if (task.touchesOverflow.length) body.appendChild(renderReportEvidence({ touchesOverflow: task.touchesOverflow }));
-      if (!body.childElementCount) body.appendChild(el('p', 'ov2-report-screen__quiet', 'No attempt evidence recorded.'));
-      return body;
-    });
-    details.classList.add('ov2-report-task');
-    const summary = details.querySelector('summary')!;
-    summary.appendChild(el('span', 'ov2-report-screen__issue-id', task.id));
-    summary.appendChild(el('span', 'ov2-report-task__title', task.title));
-    summary.appendChild(reportBadge(task.phase));
-    summary.appendChild(el('span', 'ov2-report-task__count', `${task.attempts.length} ${task.attempts.length === 1 ? 'attempt' : 'attempts'}`));
-    section.appendChild(details);
+    if (task) stack.appendChild(renderTaskCard(state.boardId, task));
   }
-  if (!state.taskOrder.length) section.appendChild(el('p', 'ov2-report-screen__quiet', 'No tasks recorded for this run.'));
+  section.appendChild(stack);
   return section;
 }
 
-function renderMarkdown(markdown: string | null, loading: boolean): HTMLElement {
-  const section = el('section', 'ov2-report-screen__section');
-  section.appendChild(el('h4', 'ov2-report-screen__section-title', 'Run narrative'));
+/** One row per task: outcome, how many runs it took, and what it changed. */
+function renderTaskCard(boardId: string, task: TaskState): HTMLDetailsElement {
+  const card = makeReportCard({
+    className: 'ov2-report-task',
+    fillHead: (head) => {
+      head.appendChild(el('span', 'ov2-report-card__id', task.id));
+      head.appendChild(el('span', 'ov2-report-card__title ov2-report-task__title', task.title));
+      head.appendChild(reportBadge(task.phase));
+      const runs = task.attempts.length;
+      head.appendChild(
+        el('span', 'ov2-report-task__runs', `${runs} ${runs === 1 ? 'run' : 'runs'}`),
+      );
+      head.appendChild(
+        renderDiffStat(taskFileSet(boardId, task), taskFilesPending(boardId, task)),
+      );
+    },
+    body: () => renderTaskBody(boardId, task),
+  });
+  card.dataset.taskId = task.id;
+  return card;
+}
+
+function renderTaskBody(boardId: string, task: TaskState): HTMLElement {
+  const body = el('div', 'ov2-report-task__body');
+  const runs = renderRuns(task);
+  if (runs) body.appendChild(runs);
+
+  const files = el('div', 'ov2-report-task__files');
+  files.appendChild(el('h5', 'ov2-report-task__subhead', 'Files'));
+  files.appendChild(renderFileTable(taskFileSet(boardId, task), taskFilesPending(boardId, task)));
+  body.appendChild(files);
+
+  if (task.mergedSha) {
+    body.appendChild(
+      el('p', 'ov2-report-screen__quiet', `Merged as ${task.mergedSha.slice(0, 12)}`),
+    );
+  }
+  return body;
+}
+
+function renderRuns(task: TaskState): HTMLElement | null {
+  if (!task.attempts.length) return null;
+  const wrap = el('div', 'ov2-report-task__runs-block');
+  wrap.appendChild(el('h5', 'ov2-report-task__subhead', 'Runs'));
+  const list = el('ol', 'ov2-runs');
+  task.attempts.forEach((attempt, index) => list.appendChild(renderRun(attempt, index + 1)));
+  wrap.appendChild(list);
+  return wrap;
+}
+
+function testOutputOf(evidence: unknown): string | null {
+  if (!evidence || typeof evidence !== 'object' || Array.isArray(evidence)) return null;
+  const value = (evidence as { testOutput?: unknown }).testOutput;
+  return typeof value === 'string' && value.trim() ? value : null;
+}
+
+/** One attempt: what it was, how it ended, and the one line that explains it. */
+function renderRun(attempt: Attempt, n: number): HTMLElement {
+  const item = el('li', 'ov2-run');
+  const head = el('div', 'ov2-run__head');
+  head.appendChild(el('span', 'ov2-run__n', String(n)));
+  head.appendChild(
+    el('span', 'ov2-run__role', attempt.role.charAt(0).toUpperCase() + attempt.role.slice(1)),
+  );
+  head.appendChild(reportBadge(attempt.outcome || (attempt.ended ? 'ended' : 'in progress')));
+  if (attempt.retired) head.appendChild(el('span', 'ov2-run__tag', 'Previous run'));
+  item.appendChild(head);
+
+  const facts = collectAttemptFacts(attempt.evidence);
+  const blockers = renderBlockerList(facts.blockers);
+  if (blockers) item.appendChild(blockers);
+  if (facts.needs.length) {
+    item.appendChild(el('p', 'ov2-run__needs', `Needs ${facts.needs.join(', ')}`));
+  }
+  if (attempt.summary) {
+    item.appendChild(
+      renderCollapsedWriteUp(attempt.summary, { key: `report:${attempt.attemptId}` }),
+    );
+  }
+  const output = testOutputOf(attempt.evidence);
+  if (output) {
+    item.appendChild(
+      reportDisclosure('View test output', () => {
+        const pre = el('pre', 'ov2-report-evidence__log', output);
+        pre.tabIndex = 0;
+        return pre;
+      }),
+    );
+  }
+  return item;
+}
+
+// -- Reference ----------------------------------------------------------------
+
+/** The model's prose and the raw journal, both closed. Neither is the headline. */
+function renderReferenceSection(
+  state: BoardState,
+  markdown: string | null,
+  loading: boolean,
+  actions: BoardReportActions,
+): HTMLElement {
+  const section = el('section', 'ov2-report-screen__group ov2-report-screen__group--reference');
+  const stack = el('div', 'ov2-report-screen__cards');
+  stack.appendChild(renderNotesCard(markdown, loading));
+  const ledger = renderRunLedger(state, { rerun: () => actions.reopen() });
+  if (ledger) stack.appendChild(renderJournalCard(ledger));
+  section.appendChild(stack);
+  return section;
+}
+
+function renderNotesCard(markdown: string | null, loading: boolean): HTMLDetailsElement {
+  return makeReportCard({
+    className: 'ov2-report-notes',
+    open: false,
+    eager: true,
+    fillHead: (head) => {
+      head.appendChild(el('span', 'ov2-report-card__title', 'Run notes'));
+      if (loading && !markdown) {
+        head.appendChild(el('span', 'ov2-report-card__meta ov2-report-screen__pending', 'Writing...'));
+      } else if (!markdown) {
+        head.appendChild(el('span', 'ov2-report-card__meta', 'None yet'));
+      }
+    },
+    body: () => renderNotesBody(markdown, loading),
+  });
+}
+
+function renderNotesBody(markdown: string | null, loading: boolean): HTMLElement {
+  const body = el('div', 'ov2-report-screen__markdown');
   if (loading && !markdown) {
-    section.appendChild(el('p', 'ov2-report-screen__pending', 'Writing the end-of-run report…'));
-    return section;
+    body.appendChild(el('p', 'ov2-report-screen__pending', 'Writing the end-of-run report...'));
+    return body;
   }
   if (!markdown) {
-    section.appendChild(el('p', 'ov2-report-screen__quiet', 'No report yet.'));
-    return section;
+    body.appendChild(el('p', 'ov2-report-screen__quiet', 'No report yet.'));
+    return body;
   }
-  const body = el('div', 'ov2-report-screen__markdown msg-bubble msg-bubble--md');
-  // Saved reports may contain historical evidence absent from the current task fold.
-  // Preserve surrounding prose and render JSON fences as structured evidence.
-  const fence = /^```json\s*\r?\n([\s\S]*?)^```\s*$/gim;
-  let cursor = 0;
-  const prose = (text: string): void => {
-    if (!text.trim()) return;
-    const part = el('div', '');
-    setAssistantBubbleContent(part, text, { modeId: 'orchestrate' });
-    body.appendChild(part);
-  };
-  for (const match of markdown.matchAll(fence)) {
-    prose(markdown.slice(cursor, match.index));
-    try {
-      body.appendChild(renderReportEvidence(JSON.parse(match[1])));
-      body.appendChild(reportDisclosure('View raw evidence', () => el('pre', 'ov2-report-evidence__log', match[1])));
-    } catch {
-      body.appendChild(reportDisclosure('View recorded evidence', () => el('pre', 'ov2-report-evidence__log', match[1])));
-    }
-    cursor = match.index! + match[0].length;
-  }
-  prose(markdown.slice(cursor));
-  section.appendChild(body);
-  return section;
+  body.appendChild(renderRunNotesMarkdown(markdown));
+  return body;
 }
 
-// ── Footer ───────────────────────────────────────────────────────────────────
+function renderJournalCard(ledger: HTMLElement): HTMLDetailsElement {
+  ledger.classList.add('ov2-report-screen__ledger');
+  return makeReportCard({
+    className: 'ov2-report-journal',
+    open: false,
+    eager: true,
+    fillHead: (head) => {
+      head.appendChild(el('span', 'ov2-report-card__title', 'What the journal says'));
+    },
+    body: () => ledger,
+  });
+}
 
-function renderFooter(
+// -- Actions ------------------------------------------------------------------
+
+/** The four things you can do with a finished board, in the header bar. */
+function renderActions(
   state: BoardState,
   markdown: string | null,
   actions: BoardReportActions,
 ): HTMLElement {
-  const footer = el('div', 'ov2-report-screen__footer');
   const row = el('div', 'ov2-report-screen__actions');
 
   const back = btn('ov2-report-screen__btn board-btn board-btn--compact', 'Back to board');
@@ -336,7 +545,7 @@ function renderFooter(
       (task) => task.phase === 'abandoned' || task.phase === 'skipped',
     ).length;
     const rerun = btn(
-      'ov2-report-screen__btn board-btn board-btn--compact board-btn--primary',
+      'ov2-report-screen__btn board-btn board-btn--compact',
       nAbandoned > 0
         ? `Rerun ${nAbandoned} failed task${nAbandoned === 1 ? '' : 's'}`
         : 'Add a fix task and re-verify',
@@ -356,13 +565,7 @@ function renderFooter(
   row.appendChild(follow);
 
   row.appendChild(buildGitAction(state, markdown));
-  footer.appendChild(row);
-
-  const status = el('p', 'ov2-report-screen__git-status');
-  status.hidden = true;
-  status.setAttribute('role', 'status');
-  footer.appendChild(status);
-  return footer;
+  return row;
 }
 
 function btn(className: string, label: string): HTMLButtonElement {
@@ -729,6 +932,41 @@ async function hydrateGitStats(root: HTMLElement, state: BoardState): Promise<vo
       alreadyLanded: false,
       error: err instanceof Error ? err.message : String(err),
     });
+  }
+}
+
+/**
+ * Fill in per-file line counts for merged tasks once git answers. Rows render
+ * from journaled paths first so the report is never blocked on a numstat.
+ */
+async function hydrateTaskFiles(root: HTMLElement, state: BoardState): Promise<void> {
+  const tasks: TaskState[] = [];
+  for (const id of state.taskOrder) {
+    const task = state.tasks.get(id);
+    if (task) tasks.push(task);
+  }
+  if (!tasks.some((task) => task.mergedSha != null)) return;
+  // Subscribe before awaiting: this render may be joining a fetch already running.
+  const stop = onTaskFilesProgress(state.boardId, () => {
+    for (const task of tasks) patchTaskFiles(root, state.boardId, task);
+  });
+  try {
+    await loadMergedTaskFiles(state.boardId, tasks);
+  } finally {
+    stop();
+  }
+}
+
+function patchTaskFiles(root: HTMLElement, boardId: string, task: TaskState): void {
+  for (const card of root.querySelectorAll<HTMLElement>('.ov2-report-task')) {
+    if (card.dataset.taskId !== task.id) continue;
+    const set = taskFileSet(boardId, task);
+    const pending = taskFilesPending(boardId, task);
+    card.querySelector('.ov2-report-card__head > .ov2-diffstat')
+      ?.replaceWith(renderDiffStat(set, pending));
+    card.querySelector('.ov2-report-task__files > .ov2-report-files-block')
+      ?.replaceWith(renderFileTable(set, pending));
+    return;
   }
 }
 

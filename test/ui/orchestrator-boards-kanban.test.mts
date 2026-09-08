@@ -700,6 +700,29 @@ describe('renderTaskDetail', () => {
     assert.equal(work.querySelector('.ov2-panel__count')!.textContent, '1 agent');
   });
 
+  test('Work list leads with a scent and hides the rest of a long write-up', () => {
+    setupDom();
+    const state = board();
+    const task = state.tasks.get('W1-A')!;
+    const builder = task.attempts.find((attempt) => attempt.role === 'builder');
+    assert.ok(builder);
+    builder.summary =
+      'W3-B complete. Build: created live-events then wrote a long paragraph UNIQUE_WORK_TOKEN about middleware.';
+    builder.evidence = { blockers: ['psql refused'], files: ['a.ts'] };
+    const node = renderTaskDetail(state, task, NO_ACTIONS, OPTIONS);
+    const work = [...node.querySelectorAll('.ov2-panel')].find(
+      (panel) => panel.querySelector('.ov2-panel__title')?.textContent === 'Work',
+    )!;
+    assert.match(work.textContent!, /W3-B complete\./);
+    assert.match(work.textContent!, /psql refused/);
+    assert.match(work.textContent!, /1 file/);
+    assert.doesNotMatch(work.textContent!, /UNIQUE_WORK_TOKEN/);
+    const writeUp = work.querySelector<HTMLDetailsElement>('.ov2-attempt-writeup__full')!;
+    writeUp.open = true;
+    writeUp.dispatchEvent(new window.Event('toggle'));
+    assert.match(work.textContent!, /UNIQUE_WORK_TOKEN/);
+  });
+
   test('falls back to the declared footprint before a task has merged', () => {
     setupDom();
     const state = unrunBoard();

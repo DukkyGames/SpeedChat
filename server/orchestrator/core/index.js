@@ -67,6 +67,14 @@ export {
   touchesOverlap,
 } from './plan.js';
 
+export {
+  beforeShaForMerge,
+  hasRunDebris,
+  resetTargets,
+  rewindCascade,
+  withSkippedDependents,
+} from './rewind.js';
+
 export { summarizeTouchesOverflow } from './overflow-report.js';
 
 export { formatParseErrors, isParseErrors, parsePlan } from './parse-plan.js';

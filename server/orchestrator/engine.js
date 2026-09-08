@@ -3,10 +3,20 @@
  */
 
 import { makeEvent } from './core/events.js';
+import { resetTargets, rewindCascade } from './core/rewind.js';
 import { boardGraph, defaultComplete, isReadyForFinalTest } from './board-graph.js';
 import * as diskJournal from './journal.js';
 import { emitError } from './live-events.js';
 import { holdBoardResume, shouldHoldBoardResume } from './resume-gate.js';
+import { deleteAttemptTranscripts } from './transcripts.js';
+import {
+  INTEGRATION_SLOT,
+  attemptBranch,
+  releaseWorktree,
+  slotIdForTask,
+  slotIdFromWorktreePath,
+} from './worktree-lifecycle.js';
+import { abortMerge, deleteLocalBranch, restoreIntegration } from '../worktree/worktree-ops.js';
 
 // ── Clock ────────────────────────────────────────────────────────────────────
 
@@ -34,6 +44,75 @@ export const systemClock = {
  */
 function sameWork(a, b) {
   return a.role === b.role && (a.taskId ?? null) === (b.taskId ?? null);
+}
+
+/**
+ * @param {import('./core/types').BoardState} state
+ * @param {Iterable<string>} taskIds
+ * @returns {string[]}
+ */
+function attemptIdsForTasks(state, taskIds) {
+  /** @type {string[]} */
+  const ids = [];
+  for (const taskId of taskIds) {
+    const task = state.tasks.get(taskId);
+    if (!task) continue;
+    for (const attempt of task.attempts) {
+      if (attempt.attemptId) ids.push(attempt.attemptId);
+    }
+  }
+  return ids;
+}
+
+/**
+ * @param {import('./core/types').BoardState} state
+ * @param {Iterable<string>} taskIds
+ * @returns {boolean}
+ */
+function needsMergeAbort(state, taskIds) {
+  const wanted = new Set(taskIds);
+  if (state.mergeQueue.some((id) => wanted.has(id))) return true;
+  for (const taskId of wanted) {
+    const task = state.tasks.get(taskId);
+    if (task?.attempts.some((attempt) => attempt.role === 'merge' && !attempt.ended)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Drop attempt worktrees and branches. Never touches the integration slot.
+ *
+ * @param {string} boardId
+ * @param {import('./core/types').BoardState} state
+ * @param {Iterable<string>} taskIds
+ * @returns {Promise<void>}
+ */
+async function releaseTaskSlots(boardId, state, taskIds) {
+  /** @type {Map<string, { taskId: string, worktree?: string }>} */
+  const slots = new Map();
+  for (const taskId of taskIds) {
+    const task = state.tasks.get(taskId);
+    if (!task) continue;
+    const named = slotIdForTask(state, taskId);
+    if (named && named !== INTEGRATION_SLOT) slots.set(named, { taskId });
+    for (const attempt of task.attempts) {
+      if (typeof attempt.worktree !== 'string' || !attempt.worktree) continue;
+      const slotId = slotIdFromWorktreePath(boardId, attempt.worktree) ?? named;
+      if (!slotId || slotId === INTEGRATION_SLOT) continue;
+      slots.set(slotId, { taskId, worktree: attempt.worktree });
+    }
+  }
+  for (const [slotId, meta] of slots) {
+    await releaseWorktree({
+      boardId,
+      slotId,
+      taskId: meta.taskId,
+      ...(meta.worktree ? { worktree: meta.worktree } : {}),
+    });
+    await deleteLocalBranch(attemptBranch(boardId, slotId));
+  }
 }
 
 /**
@@ -624,6 +703,86 @@ export function createEngine(options) {
       startTimer();
       await tick();
       return true;
+    },
+
+    /**
+     * Wipe a non-merged task so it can be started from scratch.
+     * @param {string} taskId
+     * @param {string} [reason]
+     * @returns {Promise<{ ok: boolean, taskIds: string[], reason?: string }>}
+     */
+    async resetTask(taskId, reason = 'user') {
+      if (!state) throw new Error('engine not loaded');
+      const plan = resetTargets(state, taskId);
+      if (!plan.ok) return { ok: false, taskIds: [], reason: plan.error };
+      const taskIds = plan.taskIds;
+      const wanted = new Set(taskIds);
+      const attemptIds = attemptIdsForTasks(state, taskIds);
+      for (const running of effector.inspect()) {
+        if (running.taskId && wanted.has(running.taskId)) {
+          await effector.stop(running.attemptId);
+        }
+      }
+      if (needsMergeAbort(state, taskIds)) {
+        try {
+          await abortMerge({ boardId });
+        } catch (err) {
+          console.warn(`[orchestrator] ${boardId}: abortMerge during reset:`, err);
+        }
+      }
+      try {
+        await releaseTaskSlots(boardId, state, taskIds);
+      } catch (err) {
+        console.warn(`[orchestrator] ${boardId}: worktree release during reset:`, err);
+      }
+      await deleteAttemptTranscripts(boardId, attemptIds);
+      await append([makeEvent('task.reset', { taskIds, reason: String(reason ?? 'user') })]);
+      await tick();
+      return { ok: true, taskIds };
+    },
+
+    /**
+     * Undo a merge and wipe this card plus later work. Restores integration first.
+     * @param {string} taskId
+     * @param {string} [reason]
+     * @returns {Promise<{ ok: boolean, taskIds: string[], reason?: string }>}
+     */
+    async rewindFrom(taskId, reason = 'user') {
+      if (!state) throw new Error('engine not loaded');
+      const events = await journal.readEvents(boardId);
+      const plan = rewindCascade(state, events, taskId);
+      if (!plan.ok) return { ok: false, taskIds: [], reason: plan.error };
+      const { beforeSha, taskIds, fromTaskId } = plan;
+      const wanted = new Set(taskIds);
+      const attemptIds = attemptIdsForTasks(state, taskIds);
+      if (needsMergeAbort(state, taskIds)) {
+        await abortMerge({ boardId });
+      }
+      const restored = await restoreIntegration({ boardId, sha: beforeSha });
+      if (!restored.ok) {
+        return {
+          ok: false,
+          taskIds,
+          reason: restored.error || restored.output || 'could not restore integration',
+        };
+      }
+      for (const running of effector.inspect()) {
+        if (running.taskId && wanted.has(running.taskId)) {
+          await effector.stop(running.attemptId);
+        }
+      }
+      await releaseTaskSlots(boardId, state, taskIds);
+      await deleteAttemptTranscripts(boardId, attemptIds);
+      await append([
+        makeEvent('board.rewound', {
+          fromTaskId,
+          beforeSha,
+          taskIds,
+          reason: String(reason ?? 'user'),
+        }),
+      ]);
+      await tick();
+      return { ok: true, taskIds };
     },
 
     /**

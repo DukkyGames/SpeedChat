@@ -58,7 +58,9 @@ export type KnownEventType =
   | 'board.model.set'
   | 'board.renamed'
   | 'board.reopened'
-  | 'task.added';
+  | 'task.added'
+  | 'task.reset'
+  | 'board.rewound';
 
 export type JournalEventType = KnownEventType | (string & {});
 
@@ -164,6 +166,20 @@ export type TaskAddedEvent = EventEnvelope & {
   task: PlanTask;
   wave?: WaveRef;
 };
+/** Wipe listed tasks back to Planned. Does not rewind integration. */
+export type TaskResetEvent = EventEnvelope & {
+  type: 'task.reset';
+  taskIds: string[];
+  reason: string;
+};
+/** Restore integration to beforeSha and wipe listed tasks, including merged ones. */
+export type BoardRewoundEvent = EventEnvelope & {
+  type: 'board.rewound';
+  fromTaskId: string;
+  beforeSha: string;
+  taskIds: string[];
+  reason: string;
+};
 
 export type KnownEvent =
   | BoardCreatedEvent
@@ -182,7 +198,9 @@ export type KnownEvent =
   | BoardModelSetEvent
   | BoardRenamedEvent
   | BoardReopenedEvent
-  | TaskAddedEvent;
+  | TaskAddedEvent
+  | TaskResetEvent
+  | BoardRewoundEvent;
 
 /** Anything else on the journal: readable, ignorable, never an error. */
 export type OpaqueEvent = EventEnvelope & Record<string, unknown>;

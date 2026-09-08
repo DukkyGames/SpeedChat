@@ -47,6 +47,7 @@ the `.d.ts`, exactly the way `src/ui/terminal-panel.ts` imports
 | `policy.js` | `decide(role, outcome, attemptCount) -> Action`. One table. |
 | `evidence.js` | Abandonment bundle + `queryAbandonments(events)`. Pure; diffs are attached by the engine. |
 | `parse-plan.js` | `parsePlan(markdown) -> TaskGraph \| ParseError[]`. |
+| `rewind.js` | `resetTargets` / `rewindCascade`. Which cards Reset or Rewind wipe. |
 | `snapshot.js` | Snapshot format + memoised fold. A snapshot is a cache, never a source. |
 
 ## Invariants worth restating

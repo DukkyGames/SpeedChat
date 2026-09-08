@@ -271,9 +271,7 @@ function apply(state, event) {
         taskIds: [...taskIds],
         previousFinalTest: state.finalTest,
       };
-      state.finalTest = null;
-      state.finished = false;
-      state.runSummary = null;
+      reopenBoard(state);
       for (const id of taskIds) {
         const task = state.tasks.get(id);
         if (!task || task.mergedSha !== null) continue;
@@ -290,6 +288,34 @@ function apply(state, event) {
         for (const attempt of task.attempts) {
           if (attempt.ended) attempt.retired = true;
         }
+      }
+      return;
+    }
+
+    case 'task.reset': {
+      reopenBoard(state);
+      const taskIds = Array.isArray(event.taskIds) ? event.taskIds.map(String) : [];
+      for (const id of taskIds) {
+        const task = state.tasks.get(id);
+        // A merged card is Rewind's job. A stray reset line must not unmerge it.
+        if (!task || task.mergedSha !== null) continue;
+        wipeTaskRuntime(state, task);
+      }
+      return;
+    }
+
+    case 'board.rewound': {
+      reopenBoard(state);
+      const beforeSha =
+        typeof event.beforeSha === 'string' && event.beforeSha.trim()
+          ? event.beforeSha.trim()
+          : null;
+      if (beforeSha) state.integrationSha = beforeSha;
+      const taskIds = Array.isArray(event.taskIds) ? event.taskIds.map(String) : [];
+      for (const id of taskIds) {
+        const task = state.tasks.get(id);
+        if (!task) continue;
+        wipeTaskRuntime(state, task);
       }
       return;
     }
@@ -333,6 +359,36 @@ function closeMergeAttempt(task, outcome) {
   }
   attempt.ended = true;
   attempt.outcome = outcome;
+}
+
+/**
+ * Clear run-end flags so a finished board can start work again.
+ * @param {import('./types').BoardState} state
+ * @returns {void}
+ */
+function reopenBoard(state) {
+  state.finalTest = null;
+  state.finished = false;
+  state.runSummary = null;
+}
+
+/**
+ * Wipe everything Reset/Rewind throw away. Spec fields stay.
+ * @param {import('./types').BoardState} state
+ * @param {import('./types').TaskState} task
+ * @returns {void}
+ */
+function wipeTaskRuntime(state, task) {
+  state.mergeQueue = state.mergeQueue.filter((id) => id !== task.id);
+  task.attempts = [];
+  task.outcome = null;
+  task.abandonedReason = null;
+  task.abandonedEvidence = null;
+  task.skippedBy = null;
+  task.mergedSha = null;
+  task.mergeConflicts = null;
+  task.touchesOverflow = [];
+  task.reopened = null;
 }
 
 /**

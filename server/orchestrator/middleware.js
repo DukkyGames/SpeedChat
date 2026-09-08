@@ -40,6 +40,8 @@ const MUTATING_ROUTES = new Set([
   'concurrency',
   'startTask',
   'abandonTask',
+  'resetTask',
+  'rewindTask',
   'rerun',
   'model',
   'rename',
@@ -159,6 +161,16 @@ export const ROUTES = [
     method: 'POST',
     pattern: /^\/api\/boards\/([^/]+)\/tasks\/([^/]+)\/abandon$/,
     name: 'abandonTask',
+  },
+  {
+    method: 'POST',
+    pattern: /^\/api\/boards\/([^/]+)\/tasks\/([^/]+)\/reset$/,
+    name: 'resetTask',
+  },
+  {
+    method: 'POST',
+    pattern: /^\/api\/boards\/([^/]+)\/tasks\/([^/]+)\/rewind$/,
+    name: 'rewindTask',
   },
   { method: 'POST', pattern: /^\/api\/boards\/([^/]+)\/rerun$/, name: 'rerun' },
   { method: 'POST', pattern: /^\/api\/boards\/([^/]+)\/model$/, name: 'model' },
@@ -476,6 +488,30 @@ async function dispatch(route, req, res) {
       return json(res, abandoned ? 200 : 409, {
         ok: abandoned,
         ...(abandoned ? {} : { error: 'that task has already finished' }),
+        state: serialiseState(engine.getState()),
+      });
+    }
+
+    case 'resetTask': {
+      if (!(await boardExists(boardId))) return json(res, 404, { ok: false, error: 'no such board' });
+      const engine = await getEngine(boardId, () => makeEffector(boardId));
+      const result = await engine.resetTask(taskId, 'user');
+      return json(res, result.ok ? 200 : 409, {
+        ok: result.ok,
+        taskIds: result.taskIds,
+        ...(result.ok ? {} : { error: result.reason ?? 'could not reset that task' }),
+        state: serialiseState(engine.getState()),
+      });
+    }
+
+    case 'rewindTask': {
+      if (!(await boardExists(boardId))) return json(res, 404, { ok: false, error: 'no such board' });
+      const engine = await getEngine(boardId, () => makeEffector(boardId));
+      const result = await engine.rewindFrom(taskId, 'user');
+      return json(res, result.ok ? 200 : 409, {
+        ok: result.ok,
+        taskIds: result.taskIds,
+        ...(result.ok ? {} : { error: result.reason ?? 'could not rewind that task' }),
         state: serialiseState(engine.getState()),
       });
     }

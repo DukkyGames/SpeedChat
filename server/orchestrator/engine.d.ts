@@ -121,6 +121,14 @@ export interface Engine {
   stopBoard(reason?: StopReason): Promise<void>;
   setConcurrency(concurrency: number): Promise<void>;
   startTask(taskId: string): Promise<boolean>;
+  resetTask(
+    taskId: string,
+    reason?: string,
+  ): Promise<{ ok: boolean; taskIds: string[]; reason?: string }>;
+  rewindFrom(
+    taskId: string,
+    reason?: string,
+  ): Promise<{ ok: boolean; taskIds: string[]; reason?: string }>;
   reopen(
     opts?: { taskIds?: string[]; concurrency?: number },
     reason?: string,

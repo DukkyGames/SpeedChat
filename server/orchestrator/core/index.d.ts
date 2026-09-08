@@ -87,6 +87,13 @@ export {
   touchesOverlap,
 } from './plan';
 export type { NextAction } from './types';
+export {
+  beforeShaForMerge,
+  hasRunDebris,
+  resetTargets,
+  rewindCascade,
+  withSkippedDependents,
+} from './rewind';
 export { summarizeTouchesOverflow } from './overflow-report';
 export type {
   OverflowFileRow,

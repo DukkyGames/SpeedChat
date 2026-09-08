@@ -404,6 +404,64 @@ describe('P9-H — command parity', () => {
   it('404s an abandon for a board that does not exist', async () => {
     assert.equal((await call('POST', '/api/boards/nope/tasks/W1-A/abandon')).status, 404);
   });
+
+  it('resets an abandoned task to idle and deletes its transcript', async () => {
+    const boardId = await createBoard();
+    await call('POST', `/api/boards/${boardId}/start`, { concurrency: 1 });
+    const before = await call('GET', `/api/boards/${boardId}`);
+    const row = before.body.state.tasks.__map.find(([id]) => id === 'W1-A')?.[1];
+    const attemptId = row?.attempts?.[0]?.attemptId;
+    assert.ok(attemptId, 'start should have opened an attempt');
+    recordTranscriptEvent({
+      boardId,
+      attemptId,
+      role: 'builder',
+      event: { type: 'tool_call', name: 'read_file', arguments: '{"path":"a.ts"}' },
+    });
+    await flushTranscripts();
+    const file = transcriptPath(boardId, attemptId);
+    await fs.access(file);
+
+    assert.equal((await call('POST', `/api/boards/${boardId}/tasks/W1-A/abandon`)).status, 200);
+    // Stop so Reset leaves the card Planned instead of the running scheduler
+    // starting a new attempt on the next tick.
+    assert.equal((await call('POST', `/api/boards/${boardId}/stop`)).status, 200);
+    const reset = await call('POST', `/api/boards/${boardId}/tasks/W1-A/reset`);
+    assert.equal(reset.status, 200, JSON.stringify(reset.body));
+    assert.deepEqual(reset.body.taskIds, ['W1-A']);
+
+    const after = await call('GET', `/api/boards/${boardId}`);
+    const task = after.body.state.tasks.__map.find(([id]) => id === 'W1-A')?.[1];
+    assert.equal(task.phase, 'idle');
+    assert.equal(task.attempts.length, 0);
+
+    const journal = await call('GET', `/api/boards/${boardId}/journal`);
+    assert.ok(journal.body.events.some((e) => e.type === 'task.reset'));
+
+    await assert.rejects(fs.access(file), { code: 'ENOENT' });
+  });
+
+  it('409s Reset on a merged task', async () => {
+    const { makeEvent } = await import('../../server/orchestrator/core/events.js');
+    const { appendEvent } = await import('../../server/orchestrator/journal.js');
+    const boardId = await createBoard();
+    await appendEvent(
+      boardId,
+      makeEvent('merge.succeeded', { taskId: 'W1-A', sha: 'deadbeef', beforeSha: 'abc123' }),
+    );
+    // Create does not load an engine; dispose anyway so Reset folds from disk.
+    disposeEngines();
+    const reset = await call('POST', `/api/boards/${boardId}/tasks/W1-A/reset`);
+    assert.equal(reset.status, 409);
+    assert.match(reset.body.error, /Rewind/);
+  });
+
+  it('409s Rewind on a task that is not merged', async () => {
+    const boardId = await createBoard();
+    const rewind = await call('POST', `/api/boards/${boardId}/tasks/W1-A/rewind`);
+    assert.equal(rewind.status, 409);
+    assert.match(rewind.body.error, /Reset/);
+  });
 });
 
 // ── attempt transcripts ──────────────────────────────────────────────────────

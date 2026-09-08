@@ -20,6 +20,8 @@ import {
   type BoardListClient,
   type BoardSummary,
 } from './client';
+import { appConfirm } from '../ui/app-dialog';
+import { resetTargets, rewindCascade } from '../../server/orchestrator/core/rewind.js';
 import { withSessionToken } from '../api/session-token';
 import {
   formatElapsed,
@@ -1186,11 +1188,18 @@ function paintBoard(): void {
   if (!selected) {
     existingOverlay?.remove();
   } else if (existingOverlay && existingOverlay.dataset.taskId === selected.id) {
-    // Same task: patch work + thread. Remounting would restart chat animations.
-    syncTaskDetailOverlay(existingOverlay, state, selected, actions, options, {
-      syncWork: true,
-      thread: 'auto',
-    });
+    const wasPopulated = (existingOverlay.dataset.attemptCount ?? '0') !== '0';
+    const nowEmpty = selected.attempts.length === 0 && selected.mergedSha === null;
+    if (wasPopulated && nowEmpty) {
+      existingOverlay.remove();
+      surface.root.appendChild(renderTaskDetail(state, selected, actions, options));
+    } else {
+      // Same task: patch work + thread. Remounting would restart chat animations.
+      syncTaskDetailOverlay(existingOverlay, state, selected, actions, options, {
+        syncWork: true,
+        thread: 'auto',
+      });
+    }
   } else {
     existingOverlay?.remove();
     surface.root.appendChild(renderTaskDetail(state, selected, actions, options));
@@ -1205,6 +1214,8 @@ function boardActions() {
   return {
     startTask: (taskId: string) => void commandStartTask(taskId),
     abandonTask: (taskId: string) => void commandAbandonTask(taskId),
+    resetTask: (taskId: string) => void commandResetTask(taskId),
+    rewindTask: (taskId: string) => void commandRewindTask(taskId),
     rerun: (taskIds?: string[]) => void commandRerun(taskIds),
     select: (taskId: string | null) => selectTaskDetail(taskId),
     openTranscript: (attemptId: string) => void toggleTranscript(attemptId),
@@ -1824,6 +1835,90 @@ async function commandAbandonTask(taskId: string): Promise<void> {
   } catch (err) {
     notice = {
       text: `Could not abandon ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'bad',
+    };
+  } finally {
+    pendingTasks.delete(taskId);
+    paintBoard();
+  }
+}
+
+function runningResetNote(status: BoardState['status']): string {
+  return status === 'running'
+    ? ' The board is Running, so these cards may start again on their own.'
+    : '';
+}
+
+async function commandResetTask(taskId: string): Promise<void> {
+  if (!client || pendingTasks.has(taskId)) return;
+  const state = client.getState();
+  if (!state) return;
+  const plan = resetTargets(state, taskId);
+  if (!plan.ok) {
+    notice = { text: plan.error, tone: 'warn' };
+    paintBoard();
+    return;
+  }
+  const confirmed = await appConfirm(
+    `Reset ${taskId} from scratch? This deletes its attempt history, transcript, worktree, and branch. The card returns to Planned. Integration is not changed. Retry keeps history; this does not.${runningResetNote(state.status)}`,
+    { title: 'Reset task', confirmLabel: 'Reset', danger: true },
+  );
+  if (!confirmed) return;
+  pendingTasks.add(taskId);
+  paintBoard();
+  try {
+    const result = await client.resetTask(taskId);
+    notice = result.ok
+      ? null
+      : { text: result.error ?? `${taskId} could not be reset.`, tone: 'warn' };
+  } catch (err) {
+    notice = {
+      text: `Could not reset ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'bad',
+    };
+  } finally {
+    pendingTasks.delete(taskId);
+    paintBoard();
+  }
+}
+
+async function commandRewindTask(taskId: string): Promise<void> {
+  if (!client || pendingTasks.has(taskId)) return;
+  const state = client.getState();
+  if (!state) return;
+  let taskIds = [taskId];
+  try {
+    const journal = await readJournal(client.boardId);
+    const plan = rewindCascade(state, journal.events, taskId);
+    if (!plan.ok) {
+      notice = { text: plan.error, tone: 'warn' };
+      paintBoard();
+      return;
+    }
+    taskIds = plan.taskIds;
+  } catch (err) {
+    notice = {
+      text: `Could not plan rewind for ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
+      tone: 'bad',
+    };
+    paintBoard();
+    return;
+  }
+  const confirmed = await appConfirm(
+    `Rewind from ${taskId}? This restores the integration branch to before this merge and resets ${taskIds.join(', ')}. Later merged work is discarded from git. This is not Reset (Reset cannot touch a merged card).${runningResetNote(state.status)}`,
+    { title: 'Rewind merge', confirmLabel: 'Rewind', danger: true },
+  );
+  if (!confirmed) return;
+  pendingTasks.add(taskId);
+  paintBoard();
+  try {
+    const result = await client.rewindTask(taskId);
+    notice = result.ok
+      ? null
+      : { text: result.error ?? `${taskId} could not be rewound.`, tone: 'warn' };
+  } catch (err) {
+    notice = {
+      text: `Could not rewind ${taskId}: ${err instanceof Error ? err.message : String(err)}`,
       tone: 'bad',
     };
   } finally {

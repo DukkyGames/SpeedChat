@@ -15,6 +15,7 @@ import {
   type TaskFilesView,
   type TranscriptView,
 } from './board-render';
+import { hasRunDebris } from '../../server/orchestrator/core/rewind.js';
 import type { TaskFileStat, LiveActivity } from './client';
 import { adaptAttemptTranscript, liveTailPhase, transcriptStructureKey } from './transcript-adapter';
 import { el, empty, pill } from './dom';
@@ -60,6 +61,8 @@ export function renderTaskDetail(
   const overlay = el('div', 'ov2-detail-overlay');
   overlay.dataset.focusKey = 'detail-overlay';
   overlay.dataset.taskId = task.id;
+  overlay.dataset.phase = task.phase;
+  overlay.dataset.attemptCount = String(task.attempts.length);
   overlay.addEventListener('click', () => actions.select(null));
 
   const detail = el('section', 'ov2-detail');
@@ -120,6 +123,8 @@ export function syncTaskDetailOverlay(
   mode: TaskDetailSyncMode = {},
 ): void {
   overlay.dataset.taskId = task.id;
+  overlay.dataset.phase = task.phase;
+  overlay.dataset.attemptCount = String(task.attempts.length);
 
   if (mode.syncWork !== false) {
     syncWorkPanel(overlay, task, actions, options);
@@ -257,6 +262,22 @@ function renderHead(
       else actions.startTask(task.id);
     });
     head.appendChild(retry);
+  }
+
+  if (task.mergedSha !== null) {
+    const rewind = el('button', 'ov2-btn ov2-btn--danger', 'Rewind');
+    rewind.type = 'button';
+    rewind.title =
+      `Undo this merge and every task that landed after it. Restores integration to before ${task.id} merged. This is not Reset — Reset cannot touch a merged card.`;
+    rewind.addEventListener('click', () => actions.rewindTask(task.id));
+    head.appendChild(rewind);
+  } else if (hasRunDebris(state, task)) {
+    const reset = el('button', 'ov2-btn ov2-btn--danger', 'Reset');
+    reset.type = 'button';
+    reset.title =
+      `Run ${task.id} from scratch. Deletes its attempt history, worktree, and branch. Integration is not changed. Retry keeps history; this does not.`;
+    reset.addEventListener('click', () => actions.resetTask(task.id));
+    head.appendChild(reset);
   }
 
   head.appendChild(renderFacts(state, task));

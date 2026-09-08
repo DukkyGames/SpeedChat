@@ -105,6 +105,15 @@ Its primary action commits the integration work into your branch, and — depend
 
 If the run failed, **Retry** reopens abandoned and skipped tasks (merged work stays merged) and starts the board again. When every task merged but the final test failed, Retry adds a fix task and re-runs the ladder. Retry is always something you press; the board does not loop on its own.
 
+**Reset** and **Rewind** wipe a card so you can run it from a clean slate. They are not Retry: Retry keeps attempt history and never rewinds git.
+
+- **Reset** is on a card that has run but has not merged — attempts, abandoned, skipped, a merge conflict, or sitting in the merge queue. It deletes that card’s attempt history, transcripts, worktree, and attempt branch, and it also wipes skipped cards waiting on it. Integration git is left alone. The card returns to Planned.
+- **Rewind** is on a merged card. It restores the board’s integration worktree to the commit from just before that merge, then wipes this card and later merged, started, in-flight, or merge-queued work (and skipped cards blocked by that set). It does not rewind your workspace `main` or `master`.
+
+Neither starts the card again. If the board is already Running, the scheduler may pick the idle work on the next tick.
+
+Idle cards that have never started keep Start and Abandon only.
+
 Toggle back to the kanban at any time from the header.
 
 ## Global defaults

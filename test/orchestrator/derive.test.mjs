@@ -507,6 +507,69 @@ describe('derive — reopen after a finished run', () => {
   });
 });
 
+describe('derive — task.reset and board.rewound', () => {
+  it('task.reset wipes runtime and keeps the spec, then leaves the card idle', () => {
+    const state = derive(
+      journal(
+        created(),
+        started('W1-A', 'a1', 'builder', { worktree: '/tmp/wt' }),
+        ended('W1-A', 'a1', 'builder', 'fail'),
+        makeEvent('task.abandoned', { taskId: 'W1-A', reason: 'builder-failed-twice' }),
+        makeEvent('task.skipped', { taskId: 'W2-C', blockedBy: 'W1-A' }),
+        makeEvent('run.finished', { summary: 'abandoned' }),
+        makeEvent('task.reset', { taskIds: ['W1-A', 'W2-C'], reason: 'user' }),
+      ),
+    );
+    const task = state.tasks.get('W1-A');
+    assert.equal(task.phase, 'idle');
+    assert.deepEqual(task.attempts, []);
+    assert.equal(task.abandonedReason, null);
+    assert.equal(task.buildSpec, 'b');
+    assert.equal(task.title, 'A');
+    assert.deepEqual(task.touches, ['src/a/**']);
+    assert.equal(state.tasks.get('W2-C').skippedBy, null);
+    assert.equal(state.tasks.get('W2-C').phase, 'idle');
+    assert.equal(state.finished, false);
+    assert.equal(state.runSummary, null);
+  });
+
+  it('task.reset refuses to unmerge a card', () => {
+    const state = derive(
+      journal(
+        created(),
+        ...throughMerge('W1-A', 1, 'sha-a'),
+        makeEvent('task.reset', { taskIds: ['W1-A'], reason: 'user' }),
+      ),
+    );
+    assert.equal(state.tasks.get('W1-A').mergedSha, 'sha-a');
+    assert.equal(state.tasks.get('W1-A').phase, 'merged');
+    assert.equal(state.finished, false);
+  });
+
+  it('board.rewound restores integrationSha and wipes the listed suffix', () => {
+    const state = derive(
+      journal(
+        created(),
+        makeEvent('merge.succeeded', { taskId: 'W1-A', sha: 'sha-a', beforeSha: 'sha-0' }),
+        makeEvent('merge.succeeded', { taskId: 'W1-B', sha: 'sha-b', beforeSha: 'sha-a' }),
+        makeEvent('run.finished', { summary: '2 merged' }),
+        makeEvent('board.rewound', {
+          fromTaskId: 'W1-A',
+          beforeSha: 'sha-0',
+          taskIds: ['W1-A', 'W1-B'],
+          reason: 'user',
+        }),
+      ),
+    );
+    assert.equal(state.integrationSha, 'sha-0');
+    assert.equal(state.finished, false);
+    assert.equal(state.tasks.get('W1-A').mergedSha, null);
+    assert.equal(state.tasks.get('W1-A').phase, 'idle');
+    assert.equal(state.tasks.get('W1-B').mergedSha, null);
+    assert.equal(state.tasks.get('W1-B').phase, 'idle');
+  });
+});
+
 function rng(seed) {
   let a = seed >>> 0;
   return () => {

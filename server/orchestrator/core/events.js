@@ -101,6 +101,14 @@ export const EVENT_SCHEMAS = /** @type {const} */ ({
     required: { task: 'obj' },
     optional: { wave: 'obj' },
   },
+  'task.reset': {
+    required: { taskIds: 'str[]', reason: 'str' },
+    optional: {},
+  },
+  'board.rewound': {
+    required: { fromTaskId: 'id', beforeSha: 'id', taskIds: 'str[]', reason: 'str' },
+    optional: {},
+  },
 });
 
 /** Every known event type, in declaration order. */

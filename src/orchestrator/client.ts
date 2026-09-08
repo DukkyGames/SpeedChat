@@ -76,6 +76,8 @@ export interface BoardClient {
   setConcurrency(n: number): Promise<void>;
   startTask(taskId: string): Promise<boolean>;
   abandonTask(taskId: string): Promise<boolean>;
+  resetTask(taskId: string): Promise<{ ok: boolean; taskIds: string[]; error?: string }>;
+  rewindTask(taskId: string): Promise<{ ok: boolean; taskIds: string[]; error?: string }>;
   setModel(model: { providerId: string; id: string; reasoning?: string | null }): Promise<void>;
   rename(name: string): Promise<void>;
   /** Reopen failed work after a finish. 409 is an answer, not a throw. */
@@ -113,6 +115,25 @@ async function request(path: string, init?: RequestInit): Promise<any> {
     throw new Error(body?.error ?? `${response.status} from /api/boards${path}`);
   }
   return body;
+}
+
+async function postTaskWipe(
+  url: string,
+): Promise<{ ok: boolean; taskIds: string[]; error?: string }> {
+  const response = await fetch(url, { method: 'POST' });
+  let body: { ok?: boolean; taskIds?: string[]; error?: string } = {};
+  try {
+    body = (await response.json()) as typeof body;
+  } catch {
+    body = {};
+  }
+  if (response.status === 409) {
+    return { ok: false, taskIds: body.taskIds ?? [], error: body.error };
+  }
+  if (!response.ok) {
+    throw new Error(body.error ?? `${response.status} from ${url}`);
+  }
+  return { ok: true, taskIds: body.taskIds ?? [] };
 }
 
 // ── Freeze ───────────────────────────────────────────────────────────────────
@@ -653,6 +674,18 @@ export function createBoardClient(
         { method: 'POST' },
       );
       return response.ok;
+    },
+
+    async resetTask(taskId) {
+      return postTaskWipe(
+        `/api/boards/${encodeURIComponent(boardId)}/tasks/${encodeURIComponent(taskId)}/reset`,
+      );
+    },
+
+    async rewindTask(taskId) {
+      return postTaskWipe(
+        `/api/boards/${encodeURIComponent(boardId)}/tasks/${encodeURIComponent(taskId)}/rewind`,
+      );
     },
 
     async setModel(model) {

@@ -56,6 +56,8 @@ afterEach(() => {
 const NO_ACTIONS: BoardActions = {
   startTask: () => {},
   abandonTask: () => {},
+  resetTask: () => {},
+  rewindTask: () => {},
   rerun: () => {},
   select: () => {},
   openTranscript: () => {},
@@ -409,9 +411,44 @@ describe('renderTaskList', () => {
     const abandonIn = (id: string) =>
       node.querySelector<HTMLButtonElement>(
         `[data-task-id="${id}"] [data-focus-key="abandon:${id}"]`,
-      )!;
-    assert.equal(abandonIn('W1-B').disabled, false, 'a building task can be abandoned');
-    assert.equal(abandonIn('W1-A').disabled, true, 'a merged task cannot');
+      );
+    assert.equal(abandonIn('W1-B')!.disabled, false, 'a building task can be abandoned');
+    assert.equal(abandonIn('W1-A'), null, 'a merged task hides Abandon in favour of Rewind');
+  });
+
+  test('Reset is hidden on a never-started card and shown when a card has debris', () => {
+    setupDom();
+    const live = renderTaskList(board(), NO_ACTIONS, OPTIONS);
+    assert.equal(live.querySelector('[data-focus-key="reset:W1-C"]'), null, 'W1-C has never run');
+    assert.equal(live.querySelector('[data-focus-key="reset:W1-D"]'), null, 'W1-D has never run');
+    assert.ok(live.querySelector('[data-focus-key="reset:W1-B"]'), 'a building card can reset');
+
+    const abandoned = board([
+      {
+        v: 1,
+        seq: 8,
+        type: 'task.attempt.ended',
+        taskId: 'W1-B',
+        attemptId: 'b1',
+        role: 'builder',
+        outcome: 'fail',
+      },
+      { v: 1, seq: 9, type: 'task.abandoned', taskId: 'W1-B', reason: 'user' },
+    ]);
+    const after = renderTaskList(abandoned, NO_ACTIONS, OPTIONS);
+    assert.ok(after.querySelector('[data-focus-key="reset:W1-B"]'), 'an abandoned card can reset');
+  });
+
+  test('a merged card offers Rewind instead of Start, Abandon, or Reset', () => {
+    setupDom();
+    const node = renderTaskList(board(), NO_ACTIONS, OPTIONS);
+    const card = node.querySelector('[data-task-id="W1-A"]')!;
+    assert.equal(card.querySelector('[data-focus-key="start:W1-A"]'), null);
+    assert.equal(card.querySelector('[data-focus-key="abandon:W1-A"]'), null);
+    assert.equal(card.querySelector('[data-focus-key="reset:W1-A"]'), null);
+    const rewind = card.querySelector<HTMLButtonElement>('[data-focus-key="rewind:W1-A"]')!;
+    assert.equal(rewind.disabled, false);
+    assert.equal(rewind.textContent, 'Rewind');
   });
 
   test('every card carries a focus key that survives a repaint', () => {

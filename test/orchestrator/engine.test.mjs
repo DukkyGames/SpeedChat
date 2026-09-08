@@ -1158,3 +1158,61 @@ describe('engine — reopen after finish', { concurrency: 1 }, () => {
     assert.equal(engine.getState().stopReason, 'terminal');
   });
 });
+
+describe('engine — reset and rewind', { concurrency: 1 }, () => {
+  const slowPass = [{ emit: { outcome: 'pass', delayMs: 9999 } }];
+
+  it('resetTask wipes an abandoned card back to idle', async () => {
+    const { engine } = await harness({
+      boardId: 'reset-abandoned',
+      script: slowPass,
+    });
+    await engine.startBoard(1);
+    await settle();
+    assert.equal(await engine.abandonTask('A'), true);
+    // A running board would pick the idle card on the next tick. Stop first so
+    // the assertion is "sits Planned", not "immediately started again".
+    await engine.stopBoard('user');
+    const result = await engine.resetTask('A');
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.taskIds, ['A']);
+    const task = engine.getState().tasks.get('A');
+    assert.equal(task.phase, 'idle');
+    assert.equal(task.attempts.length, 0);
+    assert.equal(engine.getState().finished, false);
+    const types = (await engine.getEvents()).map((event) => event.type);
+    assert.ok(types.includes('task.reset'));
+  });
+
+  it('resetTask refuses a merged card', async () => {
+    const { engine, clock } = await harness({ boardId: 'reset-merged' });
+    await runToCompletion(engine, clock);
+    const result = await engine.resetTask('A');
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /Rewind/);
+  });
+
+  it('rewindFrom refuses a card that is not merged', async () => {
+    const { engine } = await harness({ boardId: 'rewind-idle', script: slowPass });
+    const result = await engine.rewindFrom('A');
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /Reset/);
+    const types = (await engine.getEvents()).map((event) => event.type);
+    assert.equal(types.includes('board.rewound'), false);
+  });
+
+  it('rewindFrom does not journal when integration restore fails', async () => {
+    const { engine, boardId } = await harness({ boardId: 'rewind-restore-miss' });
+    // Merged in the journal, but there is no integration worktree in this harness.
+    await appendEvent(
+      boardId,
+      makeEvent('merge.succeeded', { taskId: 'A', sha: 'deadbeef', beforeSha: 'abc123' }),
+    );
+    await engine.reload();
+    const result = await engine.rewindFrom('A');
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /integration/i);
+    const types = (await engine.getEvents()).map((event) => event.type);
+    assert.equal(types.includes('board.rewound'), false);
+  });
+});

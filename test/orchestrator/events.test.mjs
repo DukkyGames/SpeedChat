@@ -65,6 +65,13 @@ const SAMPLES = {
       line: 0,
     },
   },
+  'task.reset': { taskIds: ['W1-A'], reason: 'user' },
+  'board.rewound': {
+    fromTaskId: 'W1-A',
+    beforeSha: 'abc123',
+    taskIds: ['W1-A', 'W1-B'],
+    reason: 'user',
+  },
 };
 
 /** @param {string} type */
@@ -73,8 +80,8 @@ const sample = (type) => makeEvent(type, { ...SAMPLES[type] });
 // ── Vocabulary ───────────────────────────────────────────────────────────────
 
 describe('event vocabulary', () => {
-  it('declares exactly the seventeen types', () => {
-    assert.equal(EVENT_TYPES.length, 17);
+  it('declares exactly the nineteen types', () => {
+    assert.equal(EVENT_TYPES.length, 19);
     assert.deepEqual(EVENT_TYPES, Object.keys(SAMPLES));
   });
 

@@ -350,3 +350,37 @@ export function coalesceEvents(events) {
 export function resetTranscripts() {
   writers.clear();
 }
+
+/**
+ * Delete attempt transcript files after Reset/Rewind has already stopped the agents.
+ * Invalid ids (merge attempt ids with `#`) are skipped — they never had a file.
+ *
+ * @param {string} boardId
+ * @param {Iterable<string>} attemptIds
+ * @returns {Promise<void>}
+ */
+export async function deleteAttemptTranscripts(boardId, attemptIds) {
+  const entryDir = boardDir(boardId);
+  for (const raw of attemptIds) {
+    const attemptId = String(raw ?? '');
+    if (!attemptId) continue;
+    /** @type {string} */
+    let file;
+    try {
+      file = transcriptPathFor(entryDir, attemptId);
+    } catch {
+      continue;
+    }
+    const writer = writers.get(file);
+    if (writer) {
+      flushPending(file);
+      await writer.chain;
+      writers.delete(file);
+    }
+    try {
+      await fs.unlink(file);
+    } catch (err) {
+      if (/** @type {NodeJS.ErrnoException} */ (err).code !== 'ENOENT') throw err;
+    }
+  }
+}

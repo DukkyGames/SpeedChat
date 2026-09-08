@@ -1,5 +1,6 @@
 import type { BoardState, TaskState } from '../../server/orchestrator/core/types';
 import { reopenTargets } from '../../server/orchestrator/core/plan.js';
+import { hasRunDebris } from '../../server/orchestrator/core/rewind.js';
 import type { DiffLine } from '../chat/prompts/text-diff';
 import type { EngineError, LiveActivity, TaskFileStat } from './client';
 import {
@@ -21,6 +22,8 @@ import { setAssistantBubbleContent } from '../markdown/renderer';
 export interface BoardActions {
   startTask: (taskId: string) => void;
   abandonTask: (taskId: string) => void;
+  resetTask: (taskId: string) => void;
+  rewindTask: (taskId: string) => void;
   rerun: (taskIds?: string[]) => void;
   select: (taskId: string | null) => void;
   openTranscript: (attemptId: string) => void;
@@ -605,6 +608,27 @@ function renderCardControls(
   const controls = el('div', 'ov2-task__controls');
   const startable = isStartable(state, task);
   const pending = options.pendingTaskIds.has(task.id);
+  const merged = task.mergedSha !== null;
+
+  if (merged) {
+    const rewind = el(
+      'button',
+      'ov2-btn ov2-btn--danger',
+      pending ? 'Rewinding…' : 'Rewind',
+    );
+    rewind.type = 'button';
+    rewind.tabIndex = -1;
+    rewind.disabled = pending;
+    rewind.dataset.focusKey = `rewind:${task.id}`;
+    rewind.title =
+      `Undo this merge and every task that landed after it. Restores integration to before ${task.id} merged. This is not Reset — Reset cannot touch a merged card.`;
+    rewind.addEventListener('click', (event) => {
+      event.stopPropagation();
+      actions.rewindTask(task.id);
+    });
+    controls.appendChild(rewind);
+    return controls;
+  }
 
   const start = el('button', 'ov2-btn ov2-btn--ghost', pending ? 'Starting…' : startLabel(task, startable));
   start.type = 'button';
@@ -634,6 +658,21 @@ function renderCardControls(
     : `Give up on ${task.id}. Journaled, so anything depending on it is stranded too.`;
   abandon.addEventListener('click', () => actions.abandonTask(task.id));
   controls.appendChild(abandon);
+
+  if (hasRunDebris(state, task)) {
+    const reset = el('button', 'ov2-btn ov2-btn--danger', pending ? 'Resetting…' : 'Reset');
+    reset.type = 'button';
+    reset.tabIndex = -1;
+    reset.disabled = pending;
+    reset.dataset.focusKey = `reset:${task.id}`;
+    reset.title =
+      `Run ${task.id} from scratch. Deletes its attempt history, worktree, and branch. Integration is not changed. Retry keeps history; this does not.`;
+    reset.addEventListener('click', (event) => {
+      event.stopPropagation();
+      actions.resetTask(task.id);
+    });
+    controls.appendChild(reset);
+  }
 
   return controls;
 }

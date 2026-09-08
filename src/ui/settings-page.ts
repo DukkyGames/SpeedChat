@@ -48,6 +48,7 @@ import { requestCloseWindowApp, registerWindowTeardown } from '../os/window-moun
 import { isBoardTestingSettingsVisible } from '../config/dev-surfaces';
 import { fieldByKey } from './settings-catalog';
 import { resolveBrainMemoryRoute } from './brain-memory-routing';
+import { resolveSettingsSectionNavigation } from './settings-section-navigation';
 import { getCurrentRoute, launchApp, navigateToDesktop } from '../os/router';
 import type { LaunchOptions } from '../os/types';
 
@@ -56,15 +57,6 @@ export { categoryForArea } from './settings-page-types';
 export { isOsEmbedded };
 
 const CATEGORIES = SETTINGS_CATEGORIES;
-
-/** Legacy agent area hashes → unified Agents center. */
-const LEGACY_AGENT_AREA_ALIASES: Partial<Record<string, SettingsSectionId>> = {
-  prompting: 'agent-center',
-  modes: 'agent-center',
-  experts: 'agent-center',
-  'work-agents': 'agent-center',
-  'sub-agents': 'agent-center',
-};
 
 let activeCategory: SettingsCategoryId = 'general';
 let activeArea: SettingsSectionId = 'general';
@@ -131,6 +123,7 @@ function syncSettingsOsWindowChrome(): void {
 function parseHashRoute(): {
   category: SettingsCategoryId;
   scrollArea?: SettingsSectionId;
+  searchKey?: string;
 } {
   const hash = window.location.hash.replace(/^#\/?/, '');
   const match = hash.match(/^settings(?:\/([\w-]+))?/);
@@ -141,15 +134,19 @@ function parseHashRoute(): {
   if (slug === 'knowledge') {
     return { category: 'agents', scrollArea: 'rules' };
   }
+  if (slug === 'experts') {
+    return { category: 'agents', scrollArea: 'agent-center' };
+  }
   if (isSettingsCategoryId(slug)) {
     return { category: slug };
   }
-  if (slug && LEGACY_AGENT_AREA_ALIASES[slug]) {
-    const area = LEGACY_AGENT_AREA_ALIASES[slug]!;
-    return { category: categoryForArea(area), scrollArea: area };
-  }
-  if (isSettingsSectionId(slug)) {
-    return { category: categoryForArea(slug), scrollArea: slug };
+  if (slug && isSettingsSectionId(slug)) {
+    const resolved = resolveSettingsSectionNavigation(slug);
+    return {
+      category: categoryForArea(resolved.sectionId),
+      scrollArea: resolved.sectionId,
+      searchKey: resolved.searchKey,
+    };
   }
   return { category: 'general' };
 }
@@ -472,12 +469,20 @@ export function openSettings(
   void hydrateStaticFields();
   void detectLocalServer().then(() => refreshPromptTokenEstimate());
 
-  const route = section
-    ? { category: categoryForArea(section), scrollArea: section }
+  const resolvedSection = section
+    ? resolveSettingsSectionNavigation(section, options?.searchKey)
+    : null;
+  const route = resolvedSection
+    ? {
+        category: categoryForArea(resolvedSection.sectionId),
+        scrollArea: resolvedSection.sectionId,
+        searchKey: resolvedSection.searchKey,
+      }
     : parseHashRoute();
 
-  if (options?.searchKey) {
-    pendingSearchKey = options.searchKey;
+  const effectiveSearchKey = route.searchKey ?? options?.searchKey;
+  if (effectiveSearchKey) {
+    pendingSearchKey = effectiveSearchKey;
   }
 
   if (wasAlreadyOpen && route.category === activeCategory && !section && !options?.searchKey) {
@@ -486,15 +491,15 @@ export function openSettings(
   }
 
   if (route.scrollArea ?? section) {
-    setActiveArea(route.scrollArea ?? section!, {
-      searchKey: options?.searchKey,
-      skipHash: !section && !options?.searchKey,
+    setActiveArea(route.scrollArea ?? resolvedSection!.sectionId, {
+      searchKey: effectiveSearchKey,
+      skipHash: !section && !effectiveSearchKey,
     });
     return;
   }
 
   setActiveCategory(route.category, {
-    searchKey: options?.searchKey,
+    searchKey: effectiveSearchKey,
   });
 }
 
@@ -535,10 +540,10 @@ function onHashChange(): void {
     }
     const route = parseHashRoute();
     if (!getSettingsRoot()?.classList.contains('is-open')) {
-      openSettings(route.scrollArea);
+      openSettings(route.scrollArea, { searchKey: route.searchKey });
     } else if (route.scrollArea) {
-      if (route.scrollArea === activeArea && !pendingSearchKey) return;
-      setActiveArea(route.scrollArea, { skipHash: true });
+      if (route.scrollArea === activeArea && !pendingSearchKey && !route.searchKey) return;
+      setActiveArea(route.scrollArea, { skipHash: true, searchKey: route.searchKey });
     } else {
       const defaultArea = SETTINGS_CATEGORY_AREAS[route.category][0];
       if (defaultArea === activeArea && !pendingSearchKey) return;

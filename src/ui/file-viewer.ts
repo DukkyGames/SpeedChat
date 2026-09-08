@@ -11,6 +11,7 @@ import {
   getDocumentPreviewKind,
 } from '../attachments/document-path';
 import { setAssistantBubbleContent } from '../markdown/renderer';
+import { scrollMarkdownHeading, takePendingMarkdownHeading } from '../markdown/links';
 import { executeTool, getLocalServerAvailable } from '../tools/client';
 import { resolveDocumentHtmlLoadUrl, resolvePreviewLoadUrl } from './preview-load-url';
 import { getFileTreeListingWorkspaceRoot } from './file-tree-listing-root';
@@ -568,9 +569,13 @@ function mountMarkdownPreview(tab: ViewerTabState, content: string): void {
 
   const preview = document.createElement('div');
   preview.className = 'file-viewer-markdown-preview msg-bubble msg-bubble--md';
+  // Relative markdown links resolve against this file, not the SPA origin.
+  preview.dataset.mdSourcePath = tab.path;
   host.appendChild(preview);
   markdownPreviewEl = preview;
   setAssistantBubbleContent(preview, content, { streaming: false });
+  const headingId = takePendingMarkdownHeading(tab.path);
+  if (headingId) scrollMarkdownHeading(preview, headingId);
   updateViewerChrome();
 }
 

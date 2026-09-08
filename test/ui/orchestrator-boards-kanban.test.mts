@@ -19,6 +19,7 @@ import { derive } from '../../server/orchestrator/core/derive.js';
 import type { BoardState } from '../../server/orchestrator/core/types';
 import { bucketWave, columnOf, isBlocked } from '../../src/orchestrator/board-columns.ts';
 import {
+  buildTaskCardMenuItems,
   renderBoardHeader,
   renderBoardSkeleton,
   renderEngineErrors,
@@ -28,6 +29,7 @@ import {
   syncTaskCardActivity,
   type BoardActions,
 } from '../../src/orchestrator/board-render.ts';
+import type { MenuActionItem } from '../../src/ui/context-menu.ts';
 import {
   renderTaskDetail,
   resetTaskDetailUi,
@@ -66,6 +68,18 @@ const NO_ACTIONS: BoardActions = {
 };
 
 const OPTIONS = { selectedTaskId: null, pendingTaskIds: new Set<string>() };
+
+function menuAction(items: ReturnType<typeof buildTaskCardMenuItems>, id: string): MenuActionItem {
+  const row = items.find((item): item is MenuActionItem => 'id' in item && item.id === id);
+  assert.ok(row, `expected menu item ${id}`);
+  return row;
+}
+
+function taskMenuItems(state: BoardState, taskId: string, actions = NO_ACTIONS): MenuActionItem[] {
+  const task = state.tasks.get(taskId);
+  assert.ok(task, `missing task ${taskId}`);
+  return buildTaskCardMenuItems(state, task, actions, OPTIONS) as MenuActionItem[];
+}
 
 /** A board with W1-A merged, W1-B building, W1-C depending on an unmerged W1-B. */
 function board(extra: Record<string, unknown>[] = []): BoardState {
@@ -364,10 +378,8 @@ describe('renderTaskList', () => {
         outcome: 'fail',
       },
     ]);
-    const node = renderTaskList(state, NO_ACTIONS, OPTIONS);
-    const card = node.querySelector('[data-task-id="W1-B"]')!;
-    const labels = [...card.querySelectorAll('button')].map((b) => b.textContent);
-    assert.ok(labels.includes('Retry'), `expected Retry, got ${labels.join(', ')}`);
+    const start = menuAction(taskMenuItems(state, 'W1-B'), 'start:W1-B');
+    assert.equal(start.label, 'Retry');
   });
 
   test('an abandoned task on a finished board offers enabled Retry', () => {
@@ -397,31 +409,40 @@ describe('renderTaskList', () => {
       ...NO_ACTIONS,
       rerun: (ids) => calls.push(ids ?? []),
     };
-    const node = renderTaskList(state, actions, OPTIONS);
-    const btn = node.querySelector<HTMLButtonElement>('[data-focus-key="start:W1-B"]')!;
-    assert.equal(btn.disabled, false);
-    assert.equal(btn.textContent, 'Retry');
-    btn.click();
+    const start = menuAction(taskMenuItems(state, 'W1-B', actions), 'start:W1-B');
+    assert.equal(start.disabled, false);
+    assert.equal(start.label, 'Retry');
+    void start.onSelect();
     assert.deepEqual(calls, [['W1-B']]);
   });
 
   test('Abandon is offered on live work and refused on finished work', () => {
     setupDom();
-    const node = renderTaskList(board(), NO_ACTIONS, OPTIONS);
-    const abandonIn = (id: string) =>
-      node.querySelector<HTMLButtonElement>(
-        `[data-task-id="${id}"] [data-focus-key="abandon:${id}"]`,
-      );
-    assert.equal(abandonIn('W1-B')!.disabled, false, 'a building task can be abandoned');
-    assert.equal(abandonIn('W1-A'), null, 'a merged task hides Abandon in favour of Rewind');
+    const state = board();
+    const live = menuAction(taskMenuItems(state, 'W1-B'), 'abandon:W1-B');
+    assert.equal(live.disabled, false, 'a building task can be abandoned');
+    const merged = taskMenuItems(state, 'W1-A');
+    assert.equal(merged.some((item) => item.id === 'abandon:W1-A'), false);
+    assert.ok(merged.some((item) => item.id === 'rewind:W1-A'));
   });
 
   test('Reset is hidden on a never-started card and shown when a card has debris', () => {
     setupDom();
-    const live = renderTaskList(board(), NO_ACTIONS, OPTIONS);
-    assert.equal(live.querySelector('[data-focus-key="reset:W1-C"]'), null, 'W1-C has never run');
-    assert.equal(live.querySelector('[data-focus-key="reset:W1-D"]'), null, 'W1-D has never run');
-    assert.ok(live.querySelector('[data-focus-key="reset:W1-B"]'), 'a building card can reset');
+    const liveState = board();
+    assert.equal(
+      taskMenuItems(liveState, 'W1-C').some((item) => item.id === 'reset:W1-C'),
+      false,
+      'W1-C has never run',
+    );
+    assert.equal(
+      taskMenuItems(liveState, 'W1-D').some((item) => item.id === 'reset:W1-D'),
+      false,
+      'W1-D has never run',
+    );
+    assert.ok(
+      taskMenuItems(liveState, 'W1-B').some((item) => item.id === 'reset:W1-B'),
+      'a building card can reset',
+    );
 
     const abandoned = board([
       {
@@ -435,20 +456,30 @@ describe('renderTaskList', () => {
       },
       { v: 1, seq: 9, type: 'task.abandoned', taskId: 'W1-B', reason: 'user' },
     ]);
-    const after = renderTaskList(abandoned, NO_ACTIONS, OPTIONS);
-    assert.ok(after.querySelector('[data-focus-key="reset:W1-B"]'), 'an abandoned card can reset');
+    assert.ok(
+      taskMenuItems(abandoned, 'W1-B').some((item) => item.id === 'reset:W1-B'),
+      'an abandoned card can reset',
+    );
   });
 
   test('a merged card offers Rewind instead of Start, Abandon, or Reset', () => {
     setupDom();
-    const node = renderTaskList(board(), NO_ACTIONS, OPTIONS);
-    const card = node.querySelector('[data-task-id="W1-A"]')!;
-    assert.equal(card.querySelector('[data-focus-key="start:W1-A"]'), null);
-    assert.equal(card.querySelector('[data-focus-key="abandon:W1-A"]'), null);
-    assert.equal(card.querySelector('[data-focus-key="reset:W1-A"]'), null);
-    const rewind = card.querySelector<HTMLButtonElement>('[data-focus-key="rewind:W1-A"]')!;
+    const state = board();
+    const items = taskMenuItems(state, 'W1-A');
+    assert.equal(items.some((item) => item.id === 'start:W1-A'), false);
+    assert.equal(items.some((item) => item.id === 'abandon:W1-A'), false);
+    assert.equal(items.some((item) => item.id === 'reset:W1-A'), false);
+    const rewind = menuAction(items, 'rewind:W1-A');
     assert.equal(rewind.disabled, false);
-    assert.equal(rewind.textContent, 'Rewind');
+    assert.equal(rewind.label, 'Rewind');
+  });
+
+  test('each card exposes one compact actions menu trigger', () => {
+    setupDom();
+    const node = renderTaskList(board(), NO_ACTIONS, OPTIONS);
+    for (const card of node.querySelectorAll('.ov2-task')) {
+      assert.equal(card.querySelectorAll('.ov2-task__menu').length, 1);
+    }
   });
 
   test('every card carries a focus key that survives a repaint', () => {

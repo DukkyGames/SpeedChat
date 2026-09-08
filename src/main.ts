@@ -110,6 +110,7 @@ import {
 } from './state/sessions';
 import { initChatScroll } from './ui/chat-scroll';
 import { initMinnowBrowserLinkRouting } from './ui/minnow-browser-links';
+import { initMarkdownLinkRouting } from './markdown/links';
 import { renderChatFromHistory, renderStatsForChat } from './ui/messages';
 import { refreshHubLiveData } from './ui/hub';
 import {
@@ -373,6 +374,7 @@ export async function initApp(): Promise<void> {
   initStatsStrip();
   initChatScroll();
   initMinnowBrowserLinkRouting();
+  initMarkdownLinkRouting();
   loadToolConfigIntoDrawer();
   void syncWebSearchProviderFromSearchConfig();
 

@@ -1,5 +1,8 @@
 import type { ModelsSectionId } from './models-page';
 import type { SettingsSectionId } from './settings-page-types';
+import { resolveSettingsSectionNavigation } from './settings-section-navigation';
+
+const REPOSITORY_DOC_BASE = 'https://github.com/HenriGrimm/Minnow/blob/main/';
 
 export type SettingsFieldOptions = {
   key: string;
@@ -115,12 +118,18 @@ export function setSettingsLayoutNavHandlersForTests(
   navHandlersForTests = handlers;
 }
 
-function openSettingsSection(sectionId: SettingsSectionId): void {
+function openSettingsSection(
+  sectionId: SettingsSectionId,
+  searchKey?: string,
+): void {
+  const resolved = resolveSettingsSectionNavigation(sectionId, searchKey);
   if (navHandlersForTests) {
-    navHandlersForTests.openSettings(sectionId);
+    navHandlersForTests.openSettings(resolved.sectionId);
     return;
   }
-  void import('./settings-page').then((m) => m.openSettings(sectionId));
+  void import('./settings-page').then((m) =>
+    m.openSettings(resolved.sectionId, { searchKey: resolved.searchKey }),
+  );
 }
 
 function openModelsSection(sectionId: ModelsSectionId): void {
@@ -141,14 +150,51 @@ export function linkToSettingsSection(
   btn.className = 'settings-inline-link';
   btn.textContent = label;
   btn.addEventListener('click', () => {
-    const modelsSection = MODELS_APP_SECTION_BY_SETTINGS[sectionId];
+    const resolved = resolveSettingsSectionNavigation(sectionId as SettingsSectionId);
+    const modelsSection = MODELS_APP_SECTION_BY_SETTINGS[resolved.sectionId];
     if (modelsSection) {
       openModelsSection(modelsSection as ModelsSectionId);
       return;
     }
-    openSettingsSection(sectionId as SettingsSectionId);
+    openSettingsSection(resolved.sectionId, resolved.searchKey);
   });
   return btn;
+}
+
+/** In-app product wiki deep link (user manual pages). */
+export function productWikiHref(docPath: string): string {
+  const path = docPath.startsWith('documentation/')
+    ? docPath
+    : `documentation/${docPath}`;
+  return `#/wiki/${encodeURIComponent(path)}`;
+}
+
+/** Open a shipped manual page from settings copy. */
+export function linkToProductWiki(label: string, docPath: string): HTMLAnchorElement {
+  const path = docPath.startsWith('documentation/')
+    ? docPath
+    : `documentation/${docPath}`;
+  const anchor = document.createElement('a');
+  anchor.className = 'settings-inline-link';
+  anchor.textContent = label;
+  anchor.href = productWikiHref(path);
+  anchor.addEventListener('click', (event) => {
+    event.preventDefault();
+    void import('./product-wiki').then((m) => m.openProductWiki(path));
+  });
+  return anchor;
+}
+
+/** Open repository documentation that is not in the in-app manual catalog. */
+export function linkToRepositoryDoc(label: string, docPath: string): HTMLAnchorElement {
+  const normalized = docPath.replaceAll('\\', '/');
+  const anchor = document.createElement('a');
+  anchor.className = 'settings-inline-link';
+  anchor.textContent = label;
+  anchor.href = `${REPOSITORY_DOC_BASE}${normalized}`;
+  anchor.target = '_blank';
+  anchor.rel = 'noopener noreferrer';
+  return anchor;
 }
 
 /** Jump to a Models app section (e.g. Voice). */

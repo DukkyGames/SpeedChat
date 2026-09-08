@@ -57,4 +57,12 @@ describe('linkToSettingsSection', () => {
     assert.deepEqual(openModelsCalls, ['providers']);
     assert.deepEqual(openSettingsCalls, []);
   });
+
+  test('resolves legacy sub-agents slug to agent-center', async () => {
+    const btn = linkToSettingsSection('Sub-agents', 'sub-agents');
+    btn.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(openSettingsCalls, ['agent-center']);
+    assert.deepEqual(openModelsCalls, []);
+  });
 });

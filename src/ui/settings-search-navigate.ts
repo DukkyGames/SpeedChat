@@ -20,6 +20,8 @@ import { refreshSettingsSection } from './settings-sections';
 
 import { openSettings } from './settings-page';
 
+import { resolveSettingsSectionNavigation } from './settings-section-navigation';
+
 import type { SettingsSearchEntry } from './settings-search-types';
 
 const TARGET_FLASH_CLASS = 'settings-search-target-flash';
@@ -147,8 +149,9 @@ function syncAreaPanels(area: SettingsSectionId): void {
 /** Ensure the area's category panel is visible, area active, and expand collapsed groups. */
 
 export function ensureSettingsAreaVisible(sectionId: SettingsSectionId): void {
+  const { sectionId: resolvedId } = resolveSettingsSectionNavigation(sectionId);
 
-  const category = categoryForArea(sectionId);
+  const category = categoryForArea(resolvedId);
 
   const panel = getCategoryPanel(category);
 
@@ -162,17 +165,17 @@ export function ensureSettingsAreaVisible(sectionId: SettingsSectionId): void {
 
   }
 
-  syncAreaPanels(sectionId);
+  syncAreaPanels(resolvedId);
 
   updateSettingsNavActive(
 
-    sectionId,
+    resolvedId,
 
-    category === 'integrations' ? hubForArea(sectionId) : undefined,
+    category === 'integrations' ? hubForArea(resolvedId) : undefined,
 
   );
 
-  const sectionRoot = getSectionRoot(sectionId);
+  const sectionRoot = getSectionRoot(resolvedId);
 
   if (!sectionRoot) return;
 
@@ -300,15 +303,17 @@ export function resolveSettingsSearchDomTarget(
 
 ): HTMLElement | null {
 
-  ensureSettingsAreaVisible(sectionId);
+  const resolved = resolveSettingsSectionNavigation(sectionId, searchKey);
 
-  const sectionRoot = getSectionRoot(sectionId);
+  ensureSettingsAreaVisible(resolved.sectionId);
+
+  const sectionRoot = getSectionRoot(resolved.sectionId);
 
   if (!sectionRoot) return null;
 
-  if (searchKey) {
+  if (resolved.searchKey) {
 
-    const escaped = searchKey.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    const escaped = resolved.searchKey.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
     const keyed = sectionRoot.querySelector(
 
@@ -369,9 +374,13 @@ export async function navigateToSettingsSearchEntry(
     return;
   }
 
-  const category = categoryForArea(entry.sectionId);
+  const category = categoryForArea(
+    resolveSettingsSectionNavigation(entry.sectionId).sectionId,
+  );
 
-  openSettings(entry.sectionId, { searchKey: entry.searchKey });
+  const resolved = resolveSettingsSectionNavigation(entry.sectionId, entry.searchKey);
+
+  openSettings(resolved.sectionId, { searchKey: resolved.searchKey });
 
   const areas = SETTINGS_CATEGORY_AREAS[category];
 

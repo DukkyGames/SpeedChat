@@ -335,7 +335,7 @@ const SETTINGS_FIELD_CATALOG_ALL: SettingsFieldEntry[] = [
     description:
       'Review rounds, grill budget, research scope/rounds/depth, Impeccable toggle, per-stage models.',
   }),
-  field('agents.modes.planGranularity', 'Plan granularity', 'agents', 'modes', {
+  field('agents.modes.planGranularity', 'Plan granularity', 'agents', 'agent-center', {
     keywords: ['large', 'medium', 'small', 'planner tasks'],
   }),
   field('agents.experts', 'Experts', 'agents', 'agent-center', {

@@ -9,6 +9,7 @@
 import DOMPurify from 'dompurify';
 import { marked, type Token } from 'marked';
 import { highlightCodeElement } from './highlighter';
+import { decorateRenderedMarkdown } from './links';
 import { ASSISTANT_RENDER_DEBOUNCE_MS } from '../constants';
 import {
   assistantRenderDebounceTimer,
@@ -228,6 +229,7 @@ function renderFull(
   bubble.innerHTML = clean;
   applyDataLangAttributes(bubble);
   highlightCodeBlocks(bubble);
+  decorateRenderedMarkdown(bubble);
 
   if (streaming && streamCursor) {
     removeStreamingCarets(bubble);
@@ -320,6 +322,9 @@ function renderIncremental(
   for (const group of newNodeGroups) {
     state.nodes.push(group);
   }
+
+  // Re-scan the whole bubble so heading ids stay unique across reused prefix nodes.
+  decorateRenderedMarkdown(bubble);
 
   if (streamCursor) bubble.appendChild(streamCursor);
 }

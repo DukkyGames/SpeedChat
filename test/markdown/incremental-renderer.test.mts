@@ -117,6 +117,8 @@ describe('incremental assistant markdown render', () => {
     // Assert semantic equivalence (text + key structures), not byte-identical HTML.
     assert.equal(bubble.textContent?.replace(/\s+/g, ' ').trim(), expected.textContent?.replace(/\s+/g, ' ').trim());
     assert.equal(bubble.querySelectorAll('h1').length, expected.querySelectorAll('h1').length);
+    assert.equal(bubble.querySelector('h1')?.id, 'setext-heading');
+    assert.equal(expected.querySelector('h1')?.id, 'setext-heading');
     assert.equal(bubble.querySelectorAll('ul').length, expected.querySelectorAll('ul').length);
     assert.equal(bubble.querySelectorAll('table').length, expected.querySelectorAll('table').length);
     assert.equal(bubble.querySelectorAll('pre').length, expected.querySelectorAll('pre').length);

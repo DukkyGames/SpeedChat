@@ -9,6 +9,7 @@ import {
   setToolPermission,
 } from '../tools/config';
 import type { PluginListItem } from '../tools/plugin-settings-types';
+import { linkToRepositoryDoc } from './settings-layout';
 import { bindToolsListChange, createDynamicToolGroup } from './tools-list';
 
 /** Fetch plugin metadata for settings rows. */
@@ -43,8 +44,15 @@ export async function appendPluginToolsToList(
 
   const hint = document.createElement('p');
   hint.className = 'tool-group-hint';
-  hint.innerHTML =
-    'Drop-in tools under <code>~/.minnow/tools/&lt;id&gt;/</code>. See <a href="documentation/plugins/tool-authoring.md" target="_blank" rel="noopener">tool authoring</a>.';
+  const toolsPath = document.createElement('code');
+  toolsPath.textContent = '~/.minnow/tools/<id>/';
+  hint.append(
+    'Drop-in tools under ',
+    toolsPath,
+    '. See ',
+    linkToRepositoryDoc('tool authoring', 'documentation/plugins/tool-authoring.md'),
+    '.',
+  );
   bodyNodes.push(hint);
 
   const scaffoldRow = document.createElement('div');

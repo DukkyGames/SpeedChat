@@ -13,6 +13,7 @@ import {
 } from './board-columns';
 import { el, empty, field, pill } from './dom';
 import { createIcon } from '../ui/icon';
+import { openContextMenu, type MenuActionItem, type MenuItem } from '../ui/context-menu';
 import { getToolIcon } from '../ui/tool-call-presentation';
 import { humanizeToolName } from '../ui/tool-messages';
 import { setAssistantBubbleContent } from '../markdown/renderer';
@@ -599,6 +600,75 @@ export function syncTaskCardActivity(
   }
 }
 
+/** Menu rows for a kanban card's actions menu (exported for tests). */
+export function buildTaskCardMenuItems(
+  state: BoardState,
+  task: TaskState,
+  actions: BoardActions,
+  options: BoardViewOptions,
+): MenuItem[] {
+  const startable = isStartable(state, task);
+  const pending = options.pendingTaskIds.has(task.id);
+  const merged = task.mergedSha !== null;
+
+  if (merged) {
+    return [
+      {
+        id: `rewind:${task.id}`,
+        label: pending ? 'Rewinding…' : 'Rewind',
+        hint:
+          'Undo this merge and every task that landed after it. Restores integration to before this card merged. This is not Reset.',
+        danger: true,
+        disabled: pending,
+        onSelect: () => actions.rewindTask(task.id),
+      },
+    ];
+  }
+
+  const terminal =
+    task.phase === 'merged' || task.phase === 'abandoned' || task.phase === 'skipped';
+
+  const items: MenuActionItem[] = [
+    {
+      id: `start:${task.id}`,
+      label: pending ? 'Starting…' : startLabel(task, startable),
+      hint: startable.can
+        ? startable.mode === 'rerun'
+          ? `Rerun ${task.id} after this failed run`
+          : `Start ${task.id} now, outside the concurrency cap`
+        : startable.why,
+      disabled: pending || !startable.can,
+      onSelect: () => {
+        if (startable.can && startable.mode === 'rerun') actions.rerun([task.id]);
+        else actions.startTask(task.id);
+      },
+    },
+    {
+      id: `abandon:${task.id}`,
+      label: 'Abandon',
+      hint: terminal
+        ? 'This task has already finished'
+        : `Give up on ${task.id}. Journaled, so anything depending on it is stranded too.`,
+      disabled: terminal,
+      onSelect: () => actions.abandonTask(task.id),
+    },
+  ];
+
+  if (hasRunDebris(state, task)) {
+    items.push({
+      id: `reset:${task.id}`,
+      label: pending ? 'Resetting…' : 'Reset',
+      hint:
+        `Run ${task.id} from scratch. Deletes its attempt history, worktree, and branch. Integration is not changed. Retry keeps history; this does not.`,
+      danger: true,
+      disabled: pending,
+      onSelect: () => actions.resetTask(task.id),
+    });
+  }
+
+  return items;
+}
+
 function renderCardControls(
   state: BoardState,
   task: TaskState,
@@ -606,74 +676,26 @@ function renderCardControls(
   options: BoardViewOptions,
 ): HTMLElement {
   const controls = el('div', 'ov2-task__controls');
-  const startable = isStartable(state, task);
-  const pending = options.pendingTaskIds.has(task.id);
-  const merged = task.mergedSha !== null;
+  const items = buildTaskCardMenuItems(state, task, actions, options);
 
-  if (merged) {
-    const rewind = el(
-      'button',
-      'ov2-btn ov2-btn--danger',
-      pending ? 'Rewinding…' : 'Rewind',
-    );
-    rewind.type = 'button';
-    rewind.tabIndex = -1;
-    rewind.disabled = pending;
-    rewind.dataset.focusKey = `rewind:${task.id}`;
-    rewind.title =
-      `Undo this merge and every task that landed after it. Restores integration to before ${task.id} merged. This is not Reset — Reset cannot touch a merged card.`;
-    rewind.addEventListener('click', (event) => {
-      event.stopPropagation();
-      actions.rewindTask(task.id);
+  const trigger = el('button', 'ov2-task__menu');
+  trigger.type = 'button';
+  trigger.tabIndex = -1;
+  trigger.dataset.focusKey = `actions:${task.id}`;
+  trigger.setAttribute('aria-label', `Actions for ${task.id}`);
+  trigger.setAttribute('aria-haspopup', 'menu');
+  trigger.appendChild(createIcon('more', { size: 14 }));
+  trigger.addEventListener('click', (event) => {
+    event.stopPropagation();
+    openContextMenu({
+      anchor: trigger,
+      restoreFocus: trigger,
+      label: `Actions for ${task.id}`,
+      items,
     });
-    controls.appendChild(rewind);
-    return controls;
-  }
-
-  const start = el('button', 'ov2-btn ov2-btn--ghost', pending ? 'Starting…' : startLabel(task, startable));
-  start.type = 'button';
-  start.tabIndex = -1;
-  start.disabled = pending || !startable.can;
-  start.dataset.focusKey = `start:${task.id}`;
-  start.title = startable.can
-    ? startable.mode === 'rerun'
-      ? `Rerun ${task.id} after this failed run`
-      : `Start ${task.id} now, outside the concurrency cap`
-    : startable.why;
-  start.addEventListener('click', () => {
-    if (startable.can && startable.mode === 'rerun') actions.rerun([task.id]);
-    else actions.startTask(task.id);
   });
-  controls.appendChild(start);
 
-  const terminal =
-    task.phase === 'merged' || task.phase === 'abandoned' || task.phase === 'skipped';
-  const abandon = el('button', 'ov2-btn ov2-btn--ghost', 'Abandon');
-  abandon.type = 'button';
-  abandon.tabIndex = -1;
-  abandon.disabled = terminal;
-  abandon.dataset.focusKey = `abandon:${task.id}`;
-  abandon.title = terminal
-    ? 'This task has already finished'
-    : `Give up on ${task.id}. Journaled, so anything depending on it is stranded too.`;
-  abandon.addEventListener('click', () => actions.abandonTask(task.id));
-  controls.appendChild(abandon);
-
-  if (hasRunDebris(state, task)) {
-    const reset = el('button', 'ov2-btn ov2-btn--danger', pending ? 'Resetting…' : 'Reset');
-    reset.type = 'button';
-    reset.tabIndex = -1;
-    reset.disabled = pending;
-    reset.dataset.focusKey = `reset:${task.id}`;
-    reset.title =
-      `Run ${task.id} from scratch. Deletes its attempt history, worktree, and branch. Integration is not changed. Retry keeps history; this does not.`;
-    reset.addEventListener('click', (event) => {
-      event.stopPropagation();
-      actions.resetTask(task.id);
-    });
-    controls.appendChild(reset);
-  }
-
+  controls.appendChild(trigger);
   return controls;
 }
 

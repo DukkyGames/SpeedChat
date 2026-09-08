@@ -16,6 +16,7 @@ import {
 import { loadSessionsFromStorage } from '../state/sessions';
 import {
   appendSettingsGroup,
+  linkToRepositoryDoc,
   linkToSettingsSection,
 } from './settings-layout';
 import {
@@ -108,12 +109,14 @@ export async function renderBoardTestingSettingsSection(): Promise<void> {
   const lead = el('p', 'settings-section-lead');
   lead.append(
     'Manual orchestrate board workflow: fake model, seed a test board, run catalog scenarios. For the full automated suite, see ',
+    linkToRepositoryDoc(
+      'orchestrate-board-testing.md',
+      'documentation/contributor/orchestrate-board-testing.md',
+    ),
+    '. Planner chat must use the fake board model under ',
+    linkToSettingsSection('Providers', 'providers'),
+    '.',
   );
-  const guideLink = el('a', 'settings-inline-link');
-  guideLink.href = 'documentation/contributor/orchestrate-board-testing.md';
-  guideLink.textContent = 'orchestrate-board-testing.md';
-  guideLink.title = 'Open testing guide';
-  lead.append(guideLink, '. Planner chat must use the fake board model under ', linkToSettingsSection('Providers', 'providers'), '.');
   shell.appendChild(lead);
 
   const serverUp = (await detectConfigServer()) === 'server';

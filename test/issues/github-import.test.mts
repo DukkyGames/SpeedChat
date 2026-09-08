@@ -118,6 +118,9 @@ describe('importGithubIssues', () => {
     assert.equal(cards[1]?.title, 'GitHub #13');
     assert.equal(cards[1]?.status, 'done');
     assert.equal(cards[1]?.github?.number, 13);
+    // Imported cards are clean: the watermark covers the link-append bump.
+    assert.equal(cards[0]?.github?.localDirty, false);
+    assert.equal(cards[1]?.github?.localDirty, false);
   });
 
   test('already-linked numbers are skipped', async () => {

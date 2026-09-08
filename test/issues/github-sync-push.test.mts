@@ -11,7 +11,7 @@ import {
   setIssuesGithubMode,
   syncIssueWithGithub,
 } from '../../src/state/issues-github.ts';
-import { setIssuesStateForTests } from '../../src/state/issues-store.ts';
+import { setIssuesStateForTests, findIssueById } from '../../src/state/issues-store.ts';
 import { setLocalServerAvailableForTests } from '../../src/tools/config.ts';
 import type { IssueCard, IssueGithubLink } from '../../src/types.ts';
 
@@ -140,6 +140,33 @@ describe('GitHub label push', () => {
     assert.deepEqual(edit.removeLabels, []);
     assert.equal(edit.title, 'Local title');
     assert.equal(edit.body, 'Local body');
+  });
+
+  test('a successful push clears localDirty', async () => {
+    const outcome = await syncIssueWithGithub('MIN-1');
+    assert.equal(outcome.ok, true);
+    assert.equal(outcome.action, 'push');
+    assert.equal(findIssueById('MIN-1')?.github?.localDirty, false);
+  });
+
+  test('a rank-only bump with equal content is a noop and stays clean', async () => {
+    setIssuesStateForTests({
+      version: 2,
+      nextId: 2,
+      issues: [
+        card({
+          labels: ['bug'],
+          github: githubLink({ localDirty: false }),
+          updatedAt: SYNCED_AT + 50,
+        }),
+      ],
+      workspaces: {},
+    });
+    const outcome = await syncIssueWithGithub('MIN-1');
+    assert.equal(outcome.ok, true);
+    assert.equal(outcome.action, 'noop');
+    assert.equal(forgeCalls.some((call) => call.op === 'issueEdit'), false);
+    assert.equal(findIssueById('MIN-1')?.github?.localDirty, false);
   });
 
   test('push sends removeLabels when a chip was taken off locally', async () => {

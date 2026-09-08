@@ -878,6 +878,12 @@ export interface IssueGithubLink {
   remoteUpdatedAt?: number;
   /** Local `updatedAt` observed at the last sync. */
   localUpdatedAt?: number;
+  /**
+   * True when a GitHub-shaped field (title/description/labels/closed) changed
+   * locally since the last successful sync. Absent = legacy link; the planner
+   * falls back to the `localUpdatedAt` / `syncedAt` timestamps.
+   */
+  localDirty?: boolean;
 }
 
 /** Per-workspace project key + counter for KEY-n allocation. */

@@ -52,4 +52,22 @@ describe('githubSyncCaption', () => {
       'Needs push',
     );
   });
+
+  test('is Needs push when localDirty is set, even if updatedAt matches the watermark', () => {
+    assert.equal(
+      githubSyncCaption(issue({ github: link({ localDirty: true }) }), SYNCED_AT + 20),
+      'Needs push',
+    );
+  });
+
+  test('is synced when localDirty is false even if updatedAt moved (rank/assignee/notes)', () => {
+    const now = SYNCED_AT + 2 * 60 * 60 * 1000;
+    assert.equal(
+      githubSyncCaption(
+        issue({ github: link({ localDirty: false }), updatedAt: SYNCED_AT + 10 }),
+        now,
+      ),
+      'synced 2h ago',
+    );
+  });
 });

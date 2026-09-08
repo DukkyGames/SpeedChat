@@ -560,6 +560,7 @@ const NORMALIZED_GITHUB_KEYS: ReadonlySet<string> = new Set([
   'syncedAt',
   'remoteUpdatedAt',
   'localUpdatedAt',
+  'localDirty',
 ]);
 
 /**
@@ -587,6 +588,7 @@ function parseIssueGithubLink(raw: unknown): IssueGithubLink | null {
   if (typeof row.localUpdatedAt === 'number' && Number.isFinite(row.localUpdatedAt)) {
     out.localUpdatedAt = row.localUpdatedAt;
   }
+  if (typeof row.localDirty === 'boolean') out.localDirty = row.localDirty;
   return preserveUnknownKeys(row, out, NORMALIZED_GITHUB_KEYS);
 }
 
@@ -1615,6 +1617,10 @@ export function updateIssue(
   touchIssuesStore();
   // Auto-sync keys off GitHub-shaped fields, not every updatedAt bump (rank, assignee, …).
   if (!options?.skipGithubAutoSync && githubSyncedFieldsChanged(beforeSynced, afterSynced)) {
+    // Mark the link dirty so "Needs push" reflects real synced-field edits.
+    // Pulls (skipGithubAutoSync) must never look dirty: a remote→local write
+    // would bounce straight back as a push.
+    if (issue.github) issue.github.localDirty = true;
     notifyGithubSyncedFieldWrite(issueId);
   }
   return issue;

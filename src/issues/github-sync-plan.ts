@@ -174,6 +174,9 @@ export function planIssueSync(input: PlanSyncInput): SyncAction {
 }
 
 function hasLocalChanged(issue: IssueCard, link: IssueGithubLink): boolean {
+  // Flag-first: once a sync has written localDirty, it is the source of truth
+  // (updatedAt also bumps on non-synced edits like rank/assignee/notes).
+  if (link.localDirty !== undefined) return link.localDirty === true;
   const baseline = link.localUpdatedAt ?? link.syncedAt;
   return issue.updatedAt > baseline;
 }
@@ -228,6 +231,11 @@ export function nextGithubLink(input: {
     url: input.url,
     syncedAt: input.now,
     localUpdatedAt: input.localUpdatedAt,
+    // Only called after a successful sync/import: the card is clean now.
+    // Writing false explicitly also converts legacy links (no flag) to
+    // flag-first mode, so the timestamp fallback stops masking rank/assignee
+    // bumps as "Needs push".
+    localDirty: false,
   };
   if (input.repo ?? input.previous?.repo) link.repo = input.repo ?? input.previous?.repo;
   if (input.remoteUpdatedAt != null) link.remoteUpdatedAt = input.remoteUpdatedAt;

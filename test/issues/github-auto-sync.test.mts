@@ -23,7 +23,12 @@ import {
   setGithubAutoSyncTimingForTests,
   startGithubAutoSyncLoop,
 } from '../../src/state/issues-github-auto.ts';
-import { addIssue, setIssuesStateForTests, updateIssue } from '../../src/state/issues-store.ts';
+import {
+  addIssue,
+  findIssueById,
+  setIssuesStateForTests,
+  updateIssue,
+} from '../../src/state/issues-store.ts';
 import { setLocalServerAvailableForTests } from '../../src/tools/config.ts';
 import type { IssueCard, IssueGithubLink } from '../../src/types.ts';
 
@@ -216,6 +221,21 @@ describe('GitHub auto-sync', () => {
     );
     await wait(60);
     assert.deepEqual(ops, []);
+  });
+
+  test('the linked-only poll pass heals a stale localDirty flag', async () => {
+    setIssuesGithubMode('mirror');
+    setIssuesGithubAuto(true);
+    setIssuesStateForTests({
+      version: 2,
+      nextId: 2,
+      issues: [card({ github: githubLink({ localDirty: true }) })],
+      workspaces: {},
+    });
+    await runGithubAutoSyncLinkedPass();
+    const issue = findIssueById('MIN-1');
+    assert.equal(issue?.github?.localDirty, false);
+    assert.equal(ops.includes('issueEdit'), false);
   });
 
   test('poller and enable-on skip unlinked creates', async () => {

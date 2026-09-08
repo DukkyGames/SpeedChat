@@ -12,6 +12,7 @@
 import {
   ISSUES_GITHUB_MODES,
   githubLabelDiff,
+  issueNeedsGithubPush,
   nextGithubLink,
   normalizeGithubMode,
   planIssueSync,
@@ -256,8 +257,20 @@ async function runIssueSync(issueId: string): Promise<SyncOutcome> {
   });
 
   switch (action.kind) {
-    case 'noop':
+    case 'noop': {
+      // Content already matches, but a stale watermark (legacy timestamp or a
+      // leftover flag) can still show "Needs push". The remote is known equal,
+      // so refresh the watermark — a no-op write that clears the caption.
+      if (
+        action.reason === 'Already in sync' &&
+        remote &&
+        issue.github &&
+        issueNeedsGithubPush(issue)
+      ) {
+        writeLink(issueId, issue.github.number, issue.github.url ?? remote.url, remote.updatedAt);
+      }
       return { ok: true, action: 'noop', error: action.reason };
+    }
 
     case 'create': {
       const res = await forge('issueCreate', {
@@ -389,16 +402,21 @@ function writeLink(
 ): void {
   const issue = findIssueById(issueId);
   if (!issue) return;
-  issue.github = nextGithubLink({
-    previous: issue.github,
+  // Append the git link first: it bumps updatedAt, and the watermark must be
+  // captured after that bump or the sync's own bookkeeping counts as a local
+  // edit and the card shows "Needs push" forever. Re-appending is a no-op
+  // (appendIssueLinks dedupes by kind+ref), so this is safe on self-heal.
+  const after = appendIssueLinks(issueId, {
+    gitLinks: [{ kind: 'github-issue', ref: `#${number}`, url }],
+  });
+  if (!after) return;
+  after.github = nextGithubLink({
+    previous: after.github,
     number,
     url,
-    localUpdatedAt: issue.updatedAt,
+    localUpdatedAt: after.updatedAt,
     remoteUpdatedAt,
     now: Date.now(),
-  });
-  appendIssueLinks(issueId, {
-    gitLinks: [{ kind: 'github-issue', ref: `#${number}`, url }],
   });
   scheduleSaveIssues();
 }

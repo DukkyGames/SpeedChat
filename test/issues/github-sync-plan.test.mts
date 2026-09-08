@@ -129,6 +129,22 @@ describe('one-sided changes', () => {
     assert.equal(action.kind === 'pull' ? action.fields.title : '', 'Changed remotely');
   });
 
+  test('a non-synced local bump does not turn a remote edit into a conflict', () => {
+    // Rank/assignee/notes edits bump updatedAt but not localDirty; once the
+    // flag exists it is the source of truth, so a remote-only edit still pulls.
+    const action = planIssueSync({
+      mode: 'mirror',
+      issue: issue({
+        github: link({ localDirty: false }),
+        updatedAt: SYNCED_AT + 50,
+      }),
+      isClosed: false,
+      remote: remote({ title: 'Changed remotely', updatedAt: SYNCED_AT + 10 }),
+    });
+    assert.equal(action.kind, 'pull');
+    assert.equal(action.kind === 'pull' ? action.fields.title : '', 'Changed remotely');
+  });
+
   test('closing locally pushes the closed state', () => {
     const action = planIssueSync({
       mode: 'mirror',
@@ -277,6 +293,7 @@ describe('watermark', () => {
       syncedAt: 100,
       localUpdatedAt: 50,
       remoteUpdatedAt: 60,
+      localDirty: false,
     });
   });
 
@@ -303,10 +320,26 @@ describe('issueNeedsGithubPush', () => {
     assert.equal(issueNeedsGithubPush(issue({ github: link() })), false);
   });
 
-  test('is true when local updatedAt is after the watermark', () => {
+  test('is true when local updatedAt is after the watermark (legacy links)', () => {
     assert.equal(
       issueNeedsGithubPush(issue({ github: link(), updatedAt: SYNCED_AT + 10 })),
       true,
+    );
+  });
+
+  test('is true when localDirty is set, even if updatedAt matches the watermark', () => {
+    assert.equal(
+      issueNeedsGithubPush(issue({ github: link({ localDirty: true }) })),
+      true,
+    );
+  });
+
+  test('is false when localDirty is false, even if updatedAt moved (rank/assignee/notes)', () => {
+    assert.equal(
+      issueNeedsGithubPush(
+        issue({ github: link({ localDirty: false }), updatedAt: SYNCED_AT + 10 }),
+      ),
+      false,
     );
   });
 });

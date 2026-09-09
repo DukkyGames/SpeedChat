@@ -91,6 +91,30 @@ describe('agent CLI passive detection', () => {
     assert.equal(status.authStatus, 'unknown');
   });
 
+  test('treats a well-known Cursor install as installed without PATH', async () => {
+    const homeDir = await tempDir();
+    const local = path.join(homeDir, 'AppData', 'Local');
+    const versionDir = path.join(local, 'cursor-agent', 'versions', '2026.09.08-6caf4ff');
+    await fs.mkdir(versionDir, { recursive: true });
+    await fs.writeFile(path.join(versionDir, 'node.exe'), 'fake-node');
+    await fs.writeFile(path.join(versionDir, 'index.js'), 'fake-index');
+    await fs.writeFile(
+      path.join(local, 'cursor-agent', 'cursor-agent.cmd'),
+      '%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -File "%SCRIPT_DIR%\\cursor-agent.ps1" %*\r\n',
+    );
+    const status = await detectAgentCli('cursor', {
+      homeDir,
+      env: { LOCALAPPDATA: local },
+      fresh: true,
+    });
+    if (process.platform === 'win32') {
+      assert.equal(status.installed, true);
+      assert.equal(status.resolvedCommand, path.join(versionDir, 'node.exe'));
+    } else {
+      assert.equal(status.installed, false);
+    }
+  });
+
   test('uses a 60-second cache for passive status', async () => {
     const homeDir = await tempDir();
     const first = await detectAgentCli('cursor', {

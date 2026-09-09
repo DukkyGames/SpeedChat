@@ -1,6 +1,7 @@
 /** Resolve an agent CLI executable without invoking a shell. */
 
 import fs from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -14,16 +15,60 @@ const DEFAULT_BINS = Object.freeze({
   'cursor-agent': 'cursor-agent',
 });
 
+/** Cursor version folders are YYYY.MM.DD[-HH-MM-SS]-commit. */
+const CURSOR_VERSION_DIR = /^\d{4}\.\d{1,2}\.\d{1,2}(?:-\d{2}-\d{2}-\d{2})?-[a-f0-9]+$/i;
+
 function assertKind(kind) {
   if (!Object.prototype.hasOwnProperty.call(DEFAULT_BINS, kind)) {
     throw new Error(`Unsupported agent CLI: ${String(kind)}`);
   }
 }
 
+/** @param {string} filePath */
+async function fileExists(filePath) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Default install locations used when PATH does not include the vendor bin dir.
+ * Cursor's Windows installer writes to %LOCALAPPDATA%\cursor-agent and does not
+ * always update the PATH inherited by Electron / the tool server.
+ * @param {'claude'|'codex'|'cursor-agent'} kind
+ * @param {{ env?: NodeJS.ProcessEnv, homeDir?: string }} [options]
+ */
+export function wellKnownAgentCliPaths(kind, options = {}) {
+  assertKind(kind);
+  const env = options.env ?? process.env;
+  const homeDir = options.homeDir ?? os.homedir();
+  const roaming = env.APPDATA?.trim() || path.join(homeDir, 'AppData', 'Roaming');
+  const local = env.LOCALAPPDATA?.trim() || path.join(homeDir, 'AppData', 'Local');
+  if (kind === 'cursor-agent') {
+    return process.platform === 'win32'
+      ? [path.join(local, 'cursor-agent', 'cursor-agent.cmd')]
+      : [path.join(homeDir, '.local', 'bin', 'cursor-agent')];
+  }
+  if (kind === 'codex') {
+    return process.platform === 'win32'
+      ? [path.join(roaming, 'npm', 'codex.cmd')]
+      : [path.join(homeDir, '.local', 'bin', 'codex')];
+  }
+  return process.platform === 'win32'
+    ? [
+      path.join(homeDir, '.local', 'bin', 'claude.exe'),
+      path.join(roaming, 'npm', 'claude.cmd'),
+    ]
+    : [path.join(homeDir, '.local', 'bin', 'claude')];
+}
+
 /**
  * Resolve a configured CLI to a shell-free command and argv prefix.
  * Windows npm shims are converted to their node script when possible.
- * @param {{ kind: 'claude'|'codex'|'cursor-agent', binPath?: string }} input
+ * @param {{ kind: 'claude'|'codex'|'cursor-agent', binPath?: string, env?: NodeJS.ProcessEnv, homeDir?: string }} input
  * @returns {Promise<{ command: string, argsPrefix: string[], display: string }>}
  */
 export async function resolveAgentCliBin(input) {
@@ -31,7 +76,7 @@ export async function resolveAgentCliBin(input) {
   const configured = typeof input.binPath === 'string' ? input.binPath.trim() : '';
   let requested = configured || (
     process.platform === 'win32'
-      ? await findAgentCliOnPath(input.kind) || DEFAULT_BINS[input.kind]
+      ? await findAgentCliOnPath(input.kind, input) || DEFAULT_BINS[input.kind]
       : DEFAULT_BINS[input.kind]
   );
   if (configured && !path.isAbsolute(requested) && !/[\\/]/.test(requested)) {
@@ -46,33 +91,105 @@ export async function resolveAgentCliBin(input) {
   return resolveWindowsCmdShim(requested);
 }
 
-/** Convert an npm-generated Windows command shim to a shell-free Node invocation. */
+/**
+ * Turn a Windows .cmd launcher into a direct executable + argv.
+ * npm global shims become `node script.js`; Cursor's installer becomes its
+ * bundled node.exe plus that version's index.js. Never spawn cmd.exe.
+ */
 export async function resolveWindowsCmdShim(requested) {
   const shim = path.resolve(requested);
   const text = await fs.readFile(shim, 'utf8').catch(() => null);
   if (!text) {
     throw new Error(`Agent CLI shim is not readable: ${requested}`);
   }
-  // npm's generated shims vary: some invoke node directly, while newer ones
-  // assign `%_prog%` and invoke `%~dp0\node_modules\…js`. Never execute the
-  // shim through cmd; extract only a script path rooted beside the shim.
-  const match =
-    text.match(/"%~dp0%?[\\/]([^"\r\n]+\.[cm]?js)"?/i) ??
-    text.match(/(?:node(?:\.exe)?|%_prog%)\s+"?([^"\r\n]+\.[cm]?js)"?/i);
-  if (!match?.[1]) {
-    throw new Error(`Cannot resolve Windows CLI shim safely: ${requested}`);
+
+  const npmScript = extractNpmShimScript(text);
+  if (npmScript) {
+    const resolvedScript = resolveShimRelativeScript(shim, npmScript);
+    await fs.access(resolvedScript);
+    return {
+      command: process.execPath,
+      argsPrefix: [resolvedScript],
+      display: requested,
+    };
   }
-  const script = match[1].replace(/[\\/]/g, path.sep);
-  const resolvedScript = path.isAbsolute(script)
-    ? script
-    : path.resolve(path.dirname(shim), script);
-  await fs.access(resolvedScript);
-  const command = process.execPath;
-  return {
-    command,
-    argsPrefix: [resolvedScript],
-    display: requested,
-  };
+
+  if (isCursorAgentCmdLauncher(text)) {
+    return resolveCursorAgentLauncher(shim, requested);
+  }
+
+  throw new Error(`Cannot resolve Windows CLI shim safely: ${requested}`);
+}
+
+/**
+ * Pull the JS entry from current and legacy npm cmd shims.
+ * Current npm quotes `"%_prog%"` and uses `"%dp0%\node_modules\…js"`.
+ */
+function extractNpmShimScript(text) {
+  const match =
+    text.match(/"%~dp0%?[\\/]([^"\r\n]+\.[cm]?js)"/i) ??
+    text.match(/"%dp0%?[\\/]([^"\r\n]+\.[cm]?js)"/i) ??
+    text.match(/"?%_prog%"?\s+"((?:%~?dp0%?[\\/])?[^"\r\n]+\.[cm]?js)"/i) ??
+    text.match(/(?:node(?:\.exe)?|%_prog%)\s+"?((?:%~?dp0%?[\\/])?[^"\r\n]+\.[cm]?js)"?/i);
+  return match?.[1] ?? null;
+}
+
+/** Resolve `%dp0%` / `%~dp0` prefixes to the directory that contains the shim. */
+function resolveShimRelativeScript(shimPath, raw) {
+  const withoutDp0 = raw.replace(/^%~?dp0%?[\\/]?/i, '');
+  const script = withoutDp0.replace(/[\\/]/g, path.sep);
+  return path.isAbsolute(script) ? script : path.resolve(path.dirname(shimPath), script);
+}
+
+function isCursorAgentCmdLauncher(text) {
+  return /-File\s+"[^"\r\n]*(?:cursor-agent|agent)\.ps1"/i.test(text);
+}
+
+/** Sort key matching Cursor's dated version directory names. */
+export function cursorAgentVersionSortKey(name) {
+  const match = String(name).match(
+    /^(\d{4})\.(\d{1,2})\.(\d{1,2})(?:-(\d{2})-(\d{2})-(\d{2}))?-([a-f0-9]+)$/i,
+  );
+  if (!match) return '';
+  const [, year, month, day, hour = '00', minute = '00', second = '00'] = match;
+  return `${year}${month.padStart(2, '0')}${day.padStart(2, '0')}${hour}${minute}${second}`;
+}
+
+/**
+ * Follow Cursor's agent.ps1 layout: node.exe + index.js beside the launcher,
+ * otherwise the newest versions/<date-commit>/ payload.
+ */
+async function resolveCursorAgentLauncher(shim, display) {
+  const root = path.dirname(shim);
+  const beside = await cursorNodeInvocation(root);
+  if (beside) return { ...beside, display };
+
+  const versionsRoot = path.join(root, 'versions');
+  let entries = [];
+  try {
+    entries = await fs.readdir(versionsRoot, { withFileTypes: true });
+  } catch {
+    entries = [];
+  }
+  const latest = entries
+    .filter((entry) => entry.isDirectory() && CURSOR_VERSION_DIR.test(entry.name))
+    .sort((a, b) => cursorAgentVersionSortKey(a.name).localeCompare(cursorAgentVersionSortKey(b.name)))
+    .at(-1);
+  if (!latest) {
+    throw new Error(`Cannot resolve Windows CLI shim safely: ${display}`);
+  }
+  const fromVersion = await cursorNodeInvocation(path.join(versionsRoot, latest.name));
+  if (!fromVersion) {
+    throw new Error(`Cannot resolve Windows CLI shim safely: ${display}`);
+  }
+  return { ...fromVersion, display };
+}
+
+async function cursorNodeInvocation(dir) {
+  const command = path.join(dir, 'node.exe');
+  const script = path.join(dir, 'index.js');
+  if (!(await fileExists(command)) || !(await fileExists(script))) return null;
+  return { command, argsPrefix: [script] };
 }
 
 /** Resolve a command on PATH for diagnostics without executing it. */
@@ -92,10 +209,19 @@ async function findCommandOnPath(command) {
   }
 }
 
-/** Resolve a known agent command on PATH for diagnostics without executing it. */
-export async function findAgentCliOnPath(kind) {
+/**
+ * Resolve a known agent command on PATH, then vendor default install locations.
+ * @param {'claude'|'codex'|'cursor-agent'} kind
+ * @param {{ env?: NodeJS.ProcessEnv, homeDir?: string }} [options]
+ */
+export async function findAgentCliOnPath(kind, options = {}) {
   assertKind(kind);
-  return findCommandOnPath(DEFAULT_BINS[kind]);
+  const fromPath = await findCommandOnPath(DEFAULT_BINS[kind]);
+  if (fromPath) return fromPath;
+  for (const candidate of wellKnownAgentCliPaths(kind, options)) {
+    if (await fileExists(candidate)) return candidate;
+  }
+  return null;
 }
 
 export function applyAgentNodeEnv(env, command) {

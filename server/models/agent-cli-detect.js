@@ -117,7 +117,8 @@ export async function detectAgentCli(kind, options = {}) {
     ? options.binPath.trim()
     : '';
   let requestedBin = configuredPath;
-  if (!requestedBin) requestedBin = await findAgentCliOnPath(adapterKind(kind)) || '';
+  // PATH often omits vendor install dirs for Electron; well-known locations still count.
+  if (!requestedBin) requestedBin = await findAgentCliOnPath(adapterKind(kind), { env, homeDir }) || '';
   if (requestedBin && configuredPath && (path.isAbsolute(requestedBin) || /[\\/]/.test(requestedBin))) {
     if (!(await fileExists(requestedBin))) requestedBin = '';
   }

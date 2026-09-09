@@ -46,6 +46,13 @@ CLI protocols evolve independently of Minnow. Fixture coverage demonstrates tran
 - Final focused run: **69 passed**. Packaging validation, test discovery, the 13 product-wiki tests, and 15 headless tests also pass. Explicit `minnow run` requests carry the foreground role so background-use gating does not block them.
 - Full regression run: **9,615 passed, six failed, one timed out, four skipped**. Three failures require Windows symlink privileges; three concern the existing `server/sub-agents/ws.js` purity/type-companion contract. The router queue timeout did not reproduce: its focused suite passed all nine tests. Those implementation and test files were not changed by this integration.
 
+## Follow-up: Windows detection (Codex + Cursor)
+
+- [x] Unwrap current npm `"%_prog%"` / `"%dp0%\…js"` command shims so Codex `.cmd` counts as installed
+- [x] Resolve Cursor's PowerShell `.cmd` launcher to the newest `versions/*/node.exe` + `index.js`
+- [x] Fall back to well-known install dirs when PATH (Electron) omits them
+- [x] Tests for shim unwrap, Cursor version payload, and well-known discovery
+
 ## Follow-up: in-app Install
 
 - [x] Replace copy-install commands with **Install** buttons that open Minnow Terminal

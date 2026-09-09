@@ -15,7 +15,6 @@ import {
   emitSubAgentRunUpdated,
   subscribeSubAgentRuns,
 } from './sub-agent-events';
-import { withSessionToken } from '../api/session-token';
 import { createSubAgentRunClient, type EventStream, type DeliverFrame } from './sub-agent-client';
 import { countToolCalls, turnEventsToMessages } from '../../server/orchestrator/transcript-messages.js';
 import type { PersistedSubAgentRun } from '../types';
@@ -246,16 +245,12 @@ function mergeClientView(runId: string): void {
         : prev?.liveNestedToolCalls,
   });
   publish(next);
-  // Terminal runs do not need a live SSE socket; holding one exhausts HTTP/1.1's
-  // 6-connection pool (MIN-584). Close after publish so waiters already saw the fold.
+  // Terminal runs do not need a live subscription. Close after publish so
+  // waiters already saw the fold.
   if (terminal) releaseClient(runId);
 }
 
 // ── Streams ──────────────────────────────────────────────────────────────────
-
-function openAuthenticatedStream(url: string): EventStream {
-  return new EventSource(withSessionToken(url)) as EventStream;
-}
 
 function releaseClient(runId: string): void {
   const client = clients.get(runId);
@@ -264,7 +259,7 @@ function releaseClient(runId: string): void {
   clients.delete(runId);
 }
 
-/** Open EventSource count — one per live run. Tests assert this does not grow with history. */
+/** Open subscription count — one per live run. Tests assert this does not grow with history. */
 export function countOpenSubAgentStreams(): number {
   return clients.size;
 }
@@ -274,7 +269,7 @@ function ensureClient(runId: string): void {
   const existing = runs.get(runId);
   if (existing && isSubAgentRunTerminal(existing.status)) return;
   const client = createSubAgentRunClient(runId, {
-    openStream: openStream ?? openAuthenticatedStream,
+    openStream: openStream ?? undefined,
   });
   clients.set(runId, client);
   client.subscribe(() => mergeClientView(runId));

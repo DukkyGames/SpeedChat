@@ -52,6 +52,7 @@ interface OverlayState {
 
 let overlay: OverlayState | null = null;
 let subscriptionBound = false;
+let openRequest = 0;
 
 // ── Status helpers ───────────────────────────────────────────────────────────
 
@@ -410,6 +411,7 @@ export function initSubAgentDrawerLiveUpdates(): void {
 }
 
 export function closeSubAgentDrawer(): void {
+  openRequest += 1;
   if (!overlay) return;
   const state = overlay;
   overlay = null;
@@ -439,10 +441,18 @@ export function closeSubAgentDrawer(): void {
 /** Opens the overlay for one sub-agent run (live or persisted on the given chat). */
 export async function openSubAgentDrawer(runId: string, chatId: string): Promise<void> {
   bindSubscription();
+  closeSubAgentDrawer();
+  // Paint the existing snapshot before any network work, including in another window.
+  if (resolveRunSnapshot(runId, chatId)) mountSubAgentDrawer(runId, chatId);
+  const request = ++openRequest;
   // Opening the drawer is an explicit request for the current state, so bypass the hydrate TTL.
   await hydrateSubAgentRunsForParentChat(chatId, { force: true });
+  if (request !== openRequest) return;
+  if (!overlay) mountSubAgentDrawer(runId, chatId);
   await hydrateSubAgentTranscript(runId);
-  mountSubAgentDrawer(runId, chatId);
+  if (overlay?.activeRunId === runId && overlay.chatId === chatId) {
+    renderActiveRun(overlay, { scroll: 'sticky' });
+  }
 }
 
 function mountSubAgentDrawer(runId: string, chatId: string): void {

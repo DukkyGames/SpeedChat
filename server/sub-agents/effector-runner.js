@@ -766,6 +766,7 @@ export function createSubAgentEffector(options = {}) {
             },
             deps: {
               ...deps,
+              postChatCompletions: (provider, body, signal, options) => deps.postChatCompletions(provider, body, signal, { ...options, routerPreferAvailable: true }),
               runHeadlessToolBatch: dispatch.runHeadlessToolBatch,
               applyContextPolicy: async (input) => {
                 const messages = Array.isArray(input?.messages) ? input.messages : [];

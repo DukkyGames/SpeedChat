@@ -351,16 +351,6 @@ describe('cancel origin wiring (P10-L / MIN-777)', () => {
     assert.equal(/waitForSubAgent\(result\.runId\s*,/.test(source), false);
   });
 
-  test('production ensureClient defaults EventSource through withSessionToken', () => {
-    const source = fs.readFileSync(
-      path.join(PROJECT_ROOT, 'src', 'agents', 'orchestrator.ts'),
-      'utf8',
-    );
-    assert.match(source, /function openAuthenticatedStream\(url: string\): EventStream/);
-    assert.match(source, /new EventSource\(withSessionToken\(url\)\)/);
-    assert.match(source, /openStream: openStream \?\? openAuthenticatedStream/);
-  });
-
   test('executeSubAgentTool does not take the parent chat signal', () => {
     const source = fs.readFileSync(
       path.join(PROJECT_ROOT, 'src', 'tools', 'sub-agent-executor.ts'),

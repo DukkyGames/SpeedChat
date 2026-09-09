@@ -33,7 +33,7 @@ import {
   isMissingGitRepositoryError,
   renderGitNoRepositoryState,
 } from './git-no-repo-state';
-import { openGitPanelNamePopover } from './git-panel-name-popover';
+import { openGitPanelNamePopover, openGitRefNamePopover } from './git-panel-name-popover';
 import { slugifyGitRefName } from '../lib/git-branch-slug.mjs';
 import { resolvePanelWorktreeCwd } from './panel-worktree-cwd';
 import { createChangesView, focusCommitMessage } from './scc-changes';
@@ -684,7 +684,28 @@ function buildCommands(): Command[] {
       keywords: 'create checkout -b',
       run: () => {
         void showSection('branches');
-        openBranchSwitcher();
+        const anchor = branchBtn ?? document.getElementById(ROOT_ID) ?? document.body;
+        openGitRefNamePopover({
+          anchor,
+          title: 'New branch',
+          kind: 'branch',
+          cwd: effectiveCwd(),
+          defaultPath: effectiveCwd() || getWorkspacePath(),
+          reserved: [currentBranch, 'main', 'master'],
+          onSubmit: async (result) => {
+            if (!(await confirmDirtyCheckout(effectiveCwd()))) return;
+            await runOp(
+              () =>
+                gitCheckout({
+                  branch: result.name,
+                  create: true,
+                  startPoint: result.startPoint,
+                  cwd: effectiveCwd(),
+                }),
+              `Created and checked out ${result.name}`,
+            );
+          },
+        });
       },
     },
     {

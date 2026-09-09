@@ -32,13 +32,14 @@ import {
 } from './timeouts.js';
 import { pumpAnthropicUpstream } from './anthropic/pump.js';
 import { deriveMessagesPathFromChat } from '../../src/lib/derive-messages-path.mjs';
-import { resolveModelApi } from './resolve-model-api.js';
+import { resolveGenerationApi } from './resolve-model-api.js';
 import { formatUpstreamHttpErrorMessage } from './upstream-error-detail.js';
 import { upstreamFetch } from './upstream-fetch.js';
 import {
   mergeOpenCodeIdentityHeaders,
   openCodeSessionIdForGeneration,
 } from '../providers/opencode-identity.js';
+import { pumpOpenAiResponsesUpstream } from './openai-responses/pump.js';
 
 // ── Dump ─────────────────────────────────────────────────────────────────────
 
@@ -257,7 +258,7 @@ export async function pumpUpstreamAsync({ state }) {
     }
 
     const canFailover = !state.failoverDisabled && index < state.candidates.length - 1;
-    const resolvedApi = resolveModelApi(runtime, candidate.modelId);
+    const resolvedApi = resolveGenerationApi(runtime, candidate.modelId);
     const anthropicRuntime =
       resolvedApi === 'anthropic-v1'
         ? {
@@ -271,35 +272,48 @@ export async function pumpUpstreamAsync({ state }) {
             },
           }
         : runtime;
-    const runAttempt = () =>
-      resolvedApi === 'anthropic-v1'
-        ? pumpAnthropicUpstream({
-            state,
-            runtime: anthropicRuntime,
-            candidate,
-            index,
-            idleMs,
-            maxMs,
-            canFailover,
-          })
-        : attemptCandidateStream({
-            state,
-            candidate,
-            index,
-            url,
-            headers: runtime.headers,
-            requestBody: prepareUpstreamRequestBody(
-              buildCandidateRequestBody(state.requestBody, candidate.modelId),
-              runtime.profile,
-              candidate.modelId,
-              resolvedApi,
-              candidate.providerId,
-            ),
-            idleMs,
-            maxMs,
-            origin,
-            canFailover,
-          });
+    const runAttempt = () => {
+      if (resolvedApi === 'anthropic-v1') {
+        return pumpAnthropicUpstream({
+          state,
+          runtime: anthropicRuntime,
+          candidate,
+          index,
+          idleMs,
+          maxMs,
+          canFailover,
+        });
+      }
+      if (resolvedApi === 'openai-responses') {
+        return pumpOpenAiResponsesUpstream({
+          state,
+          runtime,
+          candidate,
+          index,
+          idleMs,
+          maxMs,
+          canFailover,
+        });
+      }
+      return attemptCandidateStream({
+        state,
+        candidate,
+        index,
+        url,
+        headers: runtime.headers,
+        requestBody: prepareUpstreamRequestBody(
+          buildCandidateRequestBody(state.requestBody, candidate.modelId),
+          runtime.profile,
+          candidate.modelId,
+          resolvedApi,
+          candidate.providerId,
+        ),
+        idleMs,
+        maxMs,
+        origin,
+        canFailover,
+      });
+    };
 
     let result = await runAttempt();
 

@@ -197,6 +197,7 @@ export function gitWorktreeAdd(input: {
   branch: string;
   path?: string;
   baseRef?: string;
+  checkoutExisting?: boolean;
   cwd?: string;
 }): Promise<GitOpResult> {
   return postGit('worktreeAdd', input);

@@ -3,7 +3,10 @@
  * Shared by server generations pump and client model catalog normalization.
  */
 
+import { shouldUseOpenAiResponses } from './openai-responses-route.mjs';
+
 /** @typedef {'lm-studio-v0' | 'openai-v1' | 'anthropic-v1'} ApiKind */
+/** @typedef {ApiKind | 'openai-responses'} GenerationApiKind */
 
 const API_KINDS = new Set(['lm-studio-v0', 'openai-v1', 'anthropic-v1']);
 
@@ -75,4 +78,39 @@ export function resolveModelApi(runtimeOrProfile, modelId, modelMeta) {
   }
 
   return modelLooksAnthropic(modelId, modelMeta) ? 'anthropic-v1' : 'openai-v1';
+}
+
+/**
+ * Unwrap a runtime `{ profile }` wrapper or a bare profile object.
+ *
+ * @param {unknown} runtimeOrProfile
+ * @returns {Record<string, unknown> | null}
+ */
+function profileFromRuntime(runtimeOrProfile) {
+  if (!runtimeOrProfile || typeof runtimeOrProfile !== 'object') return null;
+  const wrapped = /** @type {{ profile?: unknown }} */ (runtimeOrProfile).profile;
+  if (wrapped && typeof wrapped === 'object') {
+    return /** @type {Record<string, unknown>} */ (wrapped);
+  }
+  return /** @type {Record<string, unknown>} */ (runtimeOrProfile);
+}
+
+/**
+ * Pump-side transport: same as `resolveModelApi`, plus OpenCode Go Responses models.
+ * Catalog rows stay `openai-v1` so thinking/tools UI keep Chat Completions semantics.
+ *
+ * @param {{ profile?: { apiKind?: string, autoApi?: boolean, modelApiOverrides?: Record<string, string>, baseUrl?: string } } | { apiKind?: string, autoApi?: boolean, modelApiOverrides?: Record<string, string>, baseUrl?: string }} runtimeOrProfile
+ * @param {string} modelId
+ * @param {{ owned_by?: string, arch?: string, family?: string, api?: string } | null | undefined} [modelMeta]
+ * @returns {GenerationApiKind}
+ */
+export function resolveGenerationApi(runtimeOrProfile, modelId, modelMeta) {
+  const kind = resolveModelApi(runtimeOrProfile, modelId, modelMeta);
+  if (kind !== 'openai-v1') return kind;
+  const profile = profileFromRuntime(runtimeOrProfile);
+  const baseUrl = typeof profile?.baseUrl === 'string' ? profile.baseUrl : '';
+  if (shouldUseOpenAiResponses(baseUrl, modelId)) {
+    return 'openai-responses';
+  }
+  return kind;
 }

@@ -367,16 +367,24 @@ function syncMergeToMainButton(
 }
 
 function openAddBranchPopover(anchor: HTMLButtonElement): void {
+  const cwd = getEffectiveCwdArg();
   openGitRefNamePopover({
     anchor,
     title: 'New branch',
     kind: 'branch',
-    defaultPath: getEffectiveCwdArg() || getWorkspacePath(),
+    cwd,
+    defaultPath: cwd || getWorkspacePath(),
     reserved: [currentBranchName, 'main', 'master'],
-    onSubmit: async (branch) => {
+    onSubmit: async (result) => {
       await runGitOp(
-        () => gitCheckout({ branch, create: true, cwd: getEffectiveCwdArg() }),
-        { successMessage: `Created branch ${branch}` },
+        () =>
+          gitCheckout({
+            branch: result.name,
+            create: true,
+            startPoint: result.startPoint,
+            cwd,
+          }),
+        { successMessage: `Created branch ${result.name}` },
       );
     },
   });
@@ -425,15 +433,21 @@ async function handleDeleteBranch(): Promise<void> {
 }
 
 function openAddWorktreePopover(anchor: HTMLButtonElement): void {
+  const cwd = getEffectiveCwdArg();
   openGitRefNamePopover({
     anchor,
     title: 'Add worktree',
     kind: 'worktree',
-    defaultPath: getEffectiveCwdArg() || getWorkspacePath(),
+    cwd,
+    defaultPath: cwd || getWorkspacePath(),
     reserved: [currentBranchName, 'main', 'master'],
-    onSubmit: async (branch) => {
-      const cwd = getEffectiveCwdArg();
-      const addResult = await gitWorktreeAdd({ branch, cwd });
+    onSubmit: async (result) => {
+      const addResult = await gitWorktreeAdd({
+        branch: result.name,
+        baseRef: result.checkoutExisting ? undefined : result.startPoint,
+        checkoutExisting: result.checkoutExisting,
+        cwd,
+      });
       if (!addResult.ok) {
         const error = addResult.error ?? 'Could not add worktree';
         setStatus(error, true);
@@ -442,7 +456,7 @@ function openAddWorktreePopover(anchor: HTMLButtonElement): void {
       }
 
       setStatus('');
-      showToast(`Worktree ${addResult.branch ?? branch} added`, 'success');
+      showToast(`Worktree ${addResult.branch ?? result.name} added`, 'success');
       if (addResult.path) {
         panelCwd = addResult.path;
       }

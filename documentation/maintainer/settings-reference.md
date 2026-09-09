@@ -150,7 +150,7 @@ Catalog: [`src/providers/presets.ts`](../../src/providers/presets.ts). Presets a
 
 | Preset | Base URL | API kind | Auth | Notes |
 |--------|----------|----------|------|-------|
-| OpenCode Go | `https://opencode.ai/zen/go` | OpenAI v1 | Bearer | Gateway auto-API; Minnow User-Agent + `x-opencode-session` (chat id) |
+| OpenCode Go | `https://opencode.ai/zen/go` | OpenAI v1 | Bearer | Gateway auto-API; Minnow User-Agent + `x-opencode-session` (chat id). Muse Spark 1.2/1.3, GPT 5.6 Luna, and Grok 4.6 POST `/v1/responses`; most other Go models stay `/v1/chat/completions`; Claude-looking ids use `/v1/messages`. |
 | OpenCode Zen | `https://opencode.ai/zen` | OpenAI v1 | Bearer | Gateway auto-API |
 | Anthropic | `https://api.anthropic.com` | Anthropic Messages | X-Api-Key | |
 | DeepSeek | `https://api.deepseek.com` | OpenAI v1 | Bearer | |

@@ -4,6 +4,16 @@
 
 import { randomUUID } from 'node:crypto';
 import { llmCallDeps, extractCompletionText } from '../../research/llm.js';
+import {
+  chatCompletionBodyToResponses,
+  responsesJsonToOpenAiCompletion,
+} from '../../generations/openai-responses/chat-to-responses.js';
+import { resolveCompatibleCompletionUrl } from '../../generations/openai-responses/url.js';
+import { shouldUseOpenAiResponses } from '../../../src/lib/openai-responses-route.mjs';
+import {
+  mergeOpenCodeIdentityHeaders,
+  OPENCODE_SESSION_PROBE,
+} from '../../providers/opencode-identity.js';
 import { pruneWeakSimilarLinks } from '../lint.js';
 import { applyAnchorDrift } from '../code/anchors.js';
 import { loadCleanupPlan } from './persist.js';
@@ -265,40 +275,54 @@ function composeTimeoutSignal(signal, timeoutMs) {
  */
 async function postChatCompletionWithTools({ providerId, model, messages, signal }) {
   const runtime = await executeCleanupDeps.getProviderRuntime(providerId);
-  const url = `${runtime.profile.baseUrl}${runtime.paths.chatCompletionsPath}`;
+  const url = resolveCompatibleCompletionUrl(
+    runtime.profile.baseUrl,
+    runtime.paths.chatCompletionsPath,
+    model,
+  );
+  const chatBody = {
+    model,
+    messages,
+    tools: CLEANUP_AGENT_TOOLS,
+    tool_choice: 'auto',
+    temperature: 0.2,
+    max_tokens: 4096,
+    stream: false,
+  };
+  const body = shouldUseOpenAiResponses(runtime.profile.baseUrl, model)
+    ? chatCompletionBodyToResponses(chatBody)
+    : chatBody;
   const { signal: completionSignal, cleanup } = composeTimeoutSignal(signal, COMPLETION_TIMEOUT_MS);
   try {
     const response = await executeCleanupDeps.fetchFn(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        ...runtime.headers,
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        tools: CLEANUP_AGENT_TOOLS,
-        tool_choice: 'auto',
-        temperature: 0.2,
-        max_tokens: 4096,
-        stream: false,
-      }),
+      headers: mergeOpenCodeIdentityHeaders(
+        {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+          ...runtime.headers,
+        },
+        { baseUrl: url, sessionId: OPENCODE_SESSION_PROBE },
+      ),
+      body: JSON.stringify(body),
       signal: completionSignal,
     });
     if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      const err = new Error(body || `Upstream HTTP ${response.status}`);
+      const raw = await response.text().catch(() => '');
+      const err = new Error(raw || `Upstream HTTP ${response.status}`);
       /** @type {Error & { status?: number }} */ (err).status = response.status;
       throw err;
     }
     const data = await response.json();
+    const openaiShaped = Array.isArray(data?.choices)
+      ? data
+      : responsesJsonToOpenAiCompletion(data, model);
     const choices = /** @type {{ choices?: Array<{ message?: Record<string, unknown>, finish_reason?: string }> }} */ (
-      data
+      openaiShaped
     ).choices;
     const first = choices?.[0];
     const message = first?.message ?? {};
-    const text = extractCompletionText(data);
+    const text = extractCompletionText(openaiShaped);
     return {
       message,
       text,

@@ -269,6 +269,7 @@ export function createChatWorktree(input: {
   chatId: string;
   branch: string;
   baseRef?: string;
+  checkoutExisting?: boolean;
 }): Promise<WorktreeOpResult> {
   return postWorktree('create_chat', input);
 }

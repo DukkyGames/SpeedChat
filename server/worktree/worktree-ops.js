@@ -14,6 +14,7 @@ import {
   isPathUnderWorktreesRoot,
 } from './paths.js';
 import { getEffectiveWorkspaceRoot } from '../runtime/path-access.js';
+import { worktreeAdd } from '../git/git-ops.js';
 
 const GIT_TIMEOUT_MS = 120_000;
 
@@ -1034,9 +1035,9 @@ export async function listWorktrees() {
 }
 
 /**
- * @param {{ chatId: string, branch: string, baseRef?: string }} input
+ * @param {{ chatId: string, branch: string, baseRef?: string, checkoutExisting?: boolean }} input
  */
-export async function createChatWorktree({ chatId, branch, baseRef }) {
+export async function createChatWorktree({ chatId, branch, baseRef, checkoutExisting }) {
   if (!chatId || typeof chatId !== 'string' || !chatId.trim()) {
     return { ok: false, error: 'chatId is required' };
   }
@@ -1045,7 +1046,8 @@ export async function createChatWorktree({ chatId, branch, baseRef }) {
   }
 
   const wtPath = getChatWorktreePath(chatId.trim());
-  const branchName = slugifyGitRefName(branch, 'worktree');
+  const checkout = Boolean(checkoutExisting);
+  const branchName = checkout ? branch.trim() : slugifyGitRefName(branch, 'worktree');
   const base = (baseRef && baseRef.trim()) || 'HEAD';
   const depSource = getEffectiveWorkspaceRoot();
 
@@ -1061,6 +1063,34 @@ export async function createChatWorktree({ chatId, branch, baseRef }) {
   }
 
   await fs.mkdir(path.dirname(wtPath), { recursive: true });
+
+  if (checkout) {
+    const added = await worktreeAdd({
+      cwd: depSource,
+      branch: branchName,
+      path: wtPath,
+      checkoutExisting: true,
+    });
+    if (!added.ok) {
+      return {
+        ok: false,
+        path: wtPath,
+        branch: branchName,
+        error: added.error,
+        output: added.error,
+      };
+    }
+    const deps = await ensureDependencyDirs(depSource, wtPath);
+    invalidateRegisteredWorktreeCache();
+    return {
+      ok: true,
+      path: wtPath,
+      branch: added.branch ?? branchName,
+      created: true,
+      deps,
+    };
+  }
+
   const baseSha = await resolveRef(base);
   if (!baseSha) {
     return { ok: false, error: `invalid baseRef: ${base}`, path: wtPath, branch: branchName };

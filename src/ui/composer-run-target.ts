@@ -303,12 +303,16 @@ async function applyLocalTarget(): Promise<void> {
   }
 }
 
-async function applyNewWorktree(branchName: string): Promise<void> {
+async function applyNewWorktree(
+  branchName: string,
+  baseRef?: string,
+  checkoutExisting?: boolean,
+): Promise<void> {
   const chat = getActiveChat();
   busy = true;
   refreshComposerRunTargetDisabled();
   try {
-    const res = await createManagedChatWorktree(chat, branchName);
+    const res = await createManagedChatWorktree(chat, branchName, baseRef, checkoutExisting);
     if (!res.ok) {
       const msg = res.error ?? 'Could not create worktree';
       setStatus('error', msg);
@@ -381,11 +385,16 @@ function promptNewWorktreeBranch(anchor: HTMLElement): void {
     anchor,
     title: 'New worktree',
     kind: 'worktree',
+    cwd: composerGitRepoRoot(),
     defaultTitle: chatTitleForGitRef(chat),
     defaultPath: chat.workspacePath || composerGitRepoRoot(),
     reserved: [chat.gitBranch, 'main', 'master'],
-    onSubmit: async (name) => {
-      await applyNewWorktree(name);
+    onSubmit: async (result) => {
+      await applyNewWorktree(
+        result.name,
+        result.checkoutExisting ? undefined : result.startPoint,
+        result.checkoutExisting,
+      );
     },
   });
 }

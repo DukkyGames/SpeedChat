@@ -6,6 +6,16 @@
 import { formatUpstreamHttpErrorMessage } from '../generations/upstream-error-detail.js';
 import { getProviderRuntime as defaultGetProviderRuntime } from '../providers/store.js';
 import { stripDraftOutput, stripThinking } from './strip-thinking.js';
+import {
+  chatCompletionBodyToResponses,
+  responsesJsonToOpenAiCompletion,
+} from '../generations/openai-responses/chat-to-responses.js';
+import { resolveCompatibleCompletionUrl } from '../generations/openai-responses/url.js';
+import { shouldUseOpenAiResponses } from '../../src/lib/openai-responses-route.mjs';
+import {
+  mergeOpenCodeIdentityHeaders,
+  OPENCODE_SESSION_PROBE,
+} from '../providers/opencode-identity.js';
 
 /** Injectable deps for unit tests (mock fetch + provider runtime). */
 export const llmCallDeps = {
@@ -41,7 +51,13 @@ export function extractCompletionText(data) {
   if (!data || typeof data !== 'object') {
     throw new Error('Unexpected completion response schema');
   }
-  const choices = /** @type {{ choices?: unknown[] }} */ (data).choices;
+  const record = /** @type {Record<string, unknown>} */ (data);
+  const openaiShaped = Array.isArray(record.choices)
+    ? record
+    : Array.isArray(record.output)
+      ? responsesJsonToOpenAiCompletion(record)
+      : record;
+  const choices = /** @type {{ choices?: unknown[] }} */ (openaiShaped).choices;
   if (!Array.isArray(choices) || choices.length === 0) {
     throw new Error('Unexpected completion response schema');
   }
@@ -126,7 +142,8 @@ async function throwHttpError(response) {
 
 /**
  * Perform one non-streaming chat completion POST.
- * @param {{ url: string, headers: Record<string, string>, model: string, messages: LlmCallOptions['messages'], temperature: number, maxTokens: number, signal: AbortSignal }} params
+ * OpenCode Go Responses models are mapped to `/v1/responses` (MIN-855).
+ * @param {{ url: string, headers: Record<string, string>, model: string, messages: LlmCallOptions['messages'], temperature: number, maxTokens: number, signal: AbortSignal, baseUrl?: string }} params
  * @returns {Promise<string>}
  */
 async function postCompletionOnce({
@@ -137,21 +154,30 @@ async function postCompletionOnce({
   temperature,
   maxTokens,
   signal,
+  baseUrl,
 }) {
+  const chatBody = {
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+    stream: false,
+  };
+  const body = shouldUseOpenAiResponses(baseUrl, model)
+    ? chatCompletionBodyToResponses(chatBody)
+    : chatBody;
+
   const response = await llmCallDeps.fetchFn(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-      ...headers,
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature,
-      max_tokens: maxTokens,
-      stream: false,
-    }),
+    headers: mergeOpenCodeIdentityHeaders(
+      {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        ...headers,
+      },
+      { baseUrl: url, sessionId: OPENCODE_SESSION_PROBE },
+    ),
+    body: JSON.stringify(body),
     signal,
   });
 
@@ -186,7 +212,11 @@ export async function llmCall({
   }
 
   const runtime = await llmCallDeps.getProviderRuntime(providerId);
-  const url = `${runtime.profile.baseUrl}${runtime.paths.chatCompletionsPath}`;
+  const url = resolveCompatibleCompletionUrl(
+    runtime.profile.baseUrl,
+    runtime.paths.chatCompletionsPath,
+    model,
+  );
 
   let lastError = null;
 
@@ -201,6 +231,7 @@ export async function llmCall({
         temperature,
         maxTokens,
         signal: controller.signal,
+        baseUrl: runtime.profile.baseUrl,
       });
       return (stripProse ? stripDraftOutput(raw) : stripThinking(raw)) ?? '';
     } catch (err) {

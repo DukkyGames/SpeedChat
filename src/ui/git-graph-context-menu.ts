@@ -378,22 +378,24 @@ async function buildMenuItems(
           anchor,
           title: 'Create branch',
           kind: 'branch',
+          cwd: ctx.cwd,
           defaultPath: ctx.cwd,
           reserved: [ctx.getCurrentBranch?.() ?? '', 'main', 'master'],
-          onSubmit: async (name) => {
+          fixedStartPoint: sha,
+          onSubmit: async (result) => {
             anchor.remove();
             if (!(await confirmDirtyCheckout(ctx.cwd))) return;
-            const result = await gitCheckout({
-              branch: name,
+            const checkoutResult = await gitCheckout({
+              branch: result.name,
               create: true,
-              startPoint: sha,
+              startPoint: result.startPoint,
               cwd: ctx.cwd,
             });
-            if (!result.ok) {
-              showToast(result.error ?? 'Could not create branch', 'error');
+            if (!checkoutResult.ok) {
+              showToast(checkoutResult.error ?? 'Could not create branch', 'error');
               return;
             }
-            showToast(`Created branch ${result.branch ?? name}`, 'success');
+            showToast(`Created branch ${checkoutResult.branch ?? result.name}`, 'success');
             await ctx.onRefresh();
           },
         });

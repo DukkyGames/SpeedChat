@@ -594,7 +594,83 @@ export async function deleteBranch({ cwd, branch, force } = {}) {
   return { ok: true };
 }
 
-export async function worktreeAdd({ cwd, branch, path: worktreePath, baseRef } = {}) {
+/**
+ * @param {string} repoCwd
+ * @param {string} name
+ * @returns {Promise<boolean>}
+ */
+async function localBranchExists(repoCwd, name) {
+  const result = await git(['show-ref', '--verify', '--quiet', `refs/heads/${name}`], repoCwd);
+  return result.code === 0;
+}
+
+/**
+ * Map a UI/git ref to a remote-tracking name (`origin/foo`) when it exists.
+ * Local `feature/foo` must not match this — only `refs/remotes/…`.
+ * @param {string} repoCwd
+ * @param {string} ref
+ * @returns {Promise<{ remoteRef: string, shortName: string } | null>}
+ */
+async function resolveRemoteTrackingRef(repoCwd, ref) {
+  const trimmed = String(ref ?? '').trim();
+  if (!trimmed) return null;
+  const display = trimmed.startsWith('remotes/') ? trimmed.slice('remotes/'.length) : trimmed;
+  const candidates = [`refs/remotes/${display}`];
+  if (display !== trimmed) candidates.push(`refs/remotes/${trimmed}`);
+  for (const candidate of candidates) {
+    const result = await git(['show-ref', '--verify', '--quiet', candidate], repoCwd);
+    if (result.code !== 0) continue;
+    const remoteRef = candidate.slice('refs/remotes/'.length);
+    const slash = remoteRef.indexOf('/');
+    const shortName = slash >= 0 ? remoteRef.slice(slash + 1) : remoteRef;
+    if (!shortName) return null;
+    return { remoteRef, shortName };
+  }
+  return null;
+}
+
+/**
+ * Build `git worktree add` args. New branches use `-b`; checkout-existing attaches
+ * a local ref or `--track -b` from a remote-tracking ref that has no local yet.
+ * @param {string} repoCwd
+ * @param {{ checkout: boolean, branchName: string, targetPath: string, baseRef?: string }} input
+ * @returns {Promise<{ args: string[], checkoutName: string }>}
+ */
+async function buildWorktreeAddArgs(repoCwd, input) {
+  const { checkout, branchName, targetPath, baseRef } = input;
+  if (!checkout) {
+    const args = ['worktree', 'add', '-b', branchName, targetPath];
+    if (baseRef && String(baseRef).trim()) args.push(String(baseRef).trim());
+    return { args, checkoutName: branchName };
+  }
+
+  const remote = await resolveRemoteTrackingRef(repoCwd, branchName);
+  if (remote) {
+    if (await localBranchExists(repoCwd, remote.shortName)) {
+      return {
+        args: ['worktree', 'add', targetPath, remote.shortName],
+        checkoutName: remote.shortName,
+      };
+    }
+    return {
+      args: ['worktree', 'add', '--track', '-b', remote.shortName, targetPath, remote.remoteRef],
+      checkoutName: remote.shortName,
+    };
+  }
+
+  return {
+    args: ['worktree', 'add', targetPath, branchName],
+    checkoutName: branchName,
+  };
+}
+
+export async function worktreeAdd({
+  cwd,
+  branch,
+  path: worktreePath,
+  baseRef,
+  checkoutExisting,
+} = {}) {
   const repo = await requireGitRepo(cwd);
   if (!repo.ok) return repo;
 
@@ -602,30 +678,42 @@ export async function worktreeAdd({ cwd, branch, path: worktreePath, baseRef } =
     return { ok: false, error: 'branch is required' };
   }
 
-  const branchName = slugifyGitRefName(branch, 'worktree');
+  const checkout = Boolean(checkoutExisting);
+  // Checkout-existing keeps the selected ref as-is so remotes are not slugified.
+  const branchName = checkout ? branch.trim() : slugifyGitRefName(branch, 'worktree');
   const rootResult = await git(['rev-parse', '--show-toplevel'], repo.cwd);
   if (rootResult.code !== 0) {
     return { ok: false, error: processError(rootResult) };
   }
   const repoRoot = (rootResult.stdout ?? '').trim();
 
-  let targetPath =
+  const folderSource = checkout
+    ? (await resolveRemoteTrackingRef(repo.cwd, branchName))?.shortName ?? branchName
+    : branchName;
+  const targetPath =
     typeof worktreePath === 'string' && worktreePath.trim()
       ? worktreePath.trim()
-      : path.join(repoRoot, '.worktrees', gitRefFolderName(branchName));
+      : path.join(repoRoot, '.worktrees', gitRefFolderName(folderSource));
 
-  const args = ['worktree', 'add', '-b', branchName, targetPath];
-  if (baseRef && String(baseRef).trim()) {
-    args.push(String(baseRef).trim());
+  const { args, checkoutName } = await buildWorktreeAddArgs(repo.cwd, {
+    checkout,
+    branchName,
+    targetPath,
+    baseRef,
+  });
+
+  let result = await git(args, repo.cwd);
+  if (result.code !== 0 && checkout && args.includes('--track')) {
+    // --track needs a configured remote; a bare refs/remotes/… ref still works with -b.
+    const fallbackArgs = args.filter((part) => part !== '--track');
+    result = await git(fallbackArgs, repo.cwd);
   }
-
-  const result = await git(args, repo.cwd);
   if (result.code !== 0) {
     return { ok: false, error: processError(result) };
   }
 
   invalidateRegisteredWorktreeCache();
-  return { ok: true, path: targetPath, branch: branchName };
+  return { ok: true, path: targetPath, branch: checkoutName };
 }
 
 /**

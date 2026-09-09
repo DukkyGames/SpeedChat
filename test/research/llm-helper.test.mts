@@ -80,6 +80,49 @@ describe('llmCall', () => {
     assert.deepEqual(body.messages, [{ role: 'user', content: 'Hello' }]);
   });
 
+  test('posts Muse Spark on OpenCode Go to /v1/responses', async () => {
+    llmCallDeps.getProviderRuntime = async () => ({
+      profile: { baseUrl: 'https://opencode.ai/zen/go' },
+      paths: { chatCompletionsPath: '/v1/chat/completions' },
+      headers: { Authorization: 'Bearer test-key' },
+    });
+
+    let seenUrl = '';
+    let seenBody: Record<string, unknown> | undefined;
+    llmCallDeps.fetchFn = (async (input, init) => {
+      seenUrl = String(input);
+      seenBody = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          object: 'response',
+          output: [
+            {
+              type: 'message',
+              content: [{ type: 'output_text', text: 'spark ok' }],
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    const { llmCall } = await import('../../server/research/llm.js');
+    const result = await llmCall({
+      providerId: 'opencode-go',
+      model: 'muse-spark-1.3-contributor',
+      messages: [{ role: 'user', content: 'Hello' }],
+    });
+
+    assert.equal(seenUrl, 'https://opencode.ai/zen/go/v1/responses');
+    assert.equal(result, 'spark ok');
+    assert.equal(seenBody?.stream, false);
+    assert.equal(seenBody?.messages, undefined);
+    assert.equal(
+      (seenBody?.input as Array<{ content?: string }>)[0].content,
+      'Hello',
+    );
+  });
+
   test('falls back to reasoning_content when content is empty', async () => {
     installMockRuntime();
 
@@ -212,6 +255,22 @@ describe('extractCompletionText', () => {
     assert.equal(
       extractCompletionText(completionBody('hello')),
       'hello',
+    );
+  });
+
+  test('reads Responses output_text via output items', async () => {
+    const { extractCompletionText } = await import('../../server/research/llm.js');
+    assert.equal(
+      extractCompletionText({
+        object: 'response',
+        output: [
+          {
+            type: 'message',
+            content: [{ type: 'output_text', text: 'from responses' }],
+          },
+        ],
+      }),
+      'from responses',
     );
   });
 });

@@ -35,6 +35,15 @@ export function isOpenCodeProviderBaseUrl(baseUrl) {
 }
 
 /**
+ * OpenCode Go origin (`/zen/go`), not Zen (`/zen`).
+ * Re-export of the shared helper so server callers stay on one import.
+ *
+ * @param {string | null | undefined} baseUrl
+ * @returns {boolean}
+ */
+export { isOpenCodeGoBaseUrl } from '../../src/lib/openai-responses-route.mjs';
+
+/**
  * @returns {Promise<Record<string, ModelsDevEntry>>}
  */
 async function loadOpenCodeModelsDevCatalog() {

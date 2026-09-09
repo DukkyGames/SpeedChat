@@ -141,13 +141,20 @@ export function createBranchesView(ctx: SccContext): SccView {
         anchor: newBranchBtn,
         title: 'New branch',
         kind: 'branch',
+        cwd: ctx.getCwd(),
         defaultPath: ctx.getCwd() || getWorkspacePath(),
         reserved: [ctx.getBranch(), 'main', 'master'],
-        onSubmit: async (branch) => {
+        onSubmit: async (result) => {
           await run(
-            () => gitCheckout({ branch, create: true, cwd: ctx.getCwd() }),
+            () =>
+              gitCheckout({
+                branch: result.name,
+                create: true,
+                startPoint: result.startPoint,
+                cwd: ctx.getCwd(),
+              }),
             ctx,
-            `Created and checked out ${branch}`,
+            `Created and checked out ${result.name}`,
           );
         },
       }),
@@ -520,16 +527,22 @@ export function createWorktreesView(
         anchor: addBtn,
         title: 'Add worktree',
         kind: 'worktree',
+        cwd: ctx.getCwd(),
         defaultPath: ctx.getCwd() || getWorkspacePath(),
         reserved: [ctx.getBranch(), 'main', 'master'],
-        onSubmit: async (branch) => {
-          const result = await gitWorktreeAdd({ branch, cwd: ctx.getCwd() });
-          if (!result.ok) {
-            showToast(result.error ?? 'Could not add the worktree', 'error');
+        onSubmit: async (result) => {
+          const addResult = await gitWorktreeAdd({
+            branch: result.name,
+            baseRef: result.checkoutExisting ? undefined : result.startPoint,
+            checkoutExisting: result.checkoutExisting,
+            cwd: ctx.getCwd(),
+          });
+          if (!addResult.ok) {
+            showToast(addResult.error ?? 'Could not add the worktree', 'error');
             return;
           }
-          showToast(`Worktree for ${result.branch ?? branch} added`, 'success');
-          if (result.path) options.onSelectWorktree(result.path);
+          showToast(`Worktree for ${addResult.branch ?? result.name} added`, 'success');
+          if (addResult.path) options.onSelectWorktree(addResult.path);
           await ctx.refreshAll();
         },
       }),

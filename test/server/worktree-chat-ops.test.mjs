@@ -68,6 +68,39 @@ describe('chat worktree ops', () => {
     await fs.access(created.path);
   });
 
+  test('createChatWorktree starts a new branch from baseRef instead of HEAD', async () => {
+    const chatId = 'chat-base-ref-aaaa';
+    await execFileAsync('git', ['checkout', '-b', 'chat-base-src'], {
+      cwd: repoDir,
+      windowsHide: true,
+    });
+    await fs.writeFile(path.join(repoDir, 'chat-base-only.txt'), 'from-base\n', 'utf8');
+    await execFileAsync('git', ['add', 'chat-base-only.txt'], { cwd: repoDir, windowsHide: true });
+    await execFileAsync('git', ['commit', '-m', 'chat base src'], {
+      cwd: repoDir,
+      windowsHide: true,
+    });
+    try {
+      await execFileAsync('git', ['checkout', 'main'], { cwd: repoDir, windowsHide: true });
+    } catch {
+      await execFileAsync('git', ['checkout', 'master'], { cwd: repoDir, windowsHide: true });
+    }
+
+    const created = await createChatWorktree({
+      chatId,
+      branch: 'chat-from-base',
+      baseRef: 'chat-base-src',
+    });
+    assert.equal(created.ok, true);
+    assert.equal(created.created, true);
+    const marker = await fs.readFile(path.join(created.path, 'chat-base-only.txt'), 'utf8');
+    assert.match(marker, /from-base/);
+    await assert.rejects(() => fs.access(path.join(repoDir, 'chat-base-only.txt')));
+
+    const removed = await removeChatWorktree({ chatId });
+    assert.equal(removed.ok, true);
+  });
+
   test('createChatWorktree is idempotent for an existing slot', async () => {
     const again = await createChatWorktree({
       chatId: CHAT_ID,

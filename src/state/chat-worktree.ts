@@ -160,12 +160,17 @@ export async function createManagedChatWorktree(
   chat: Chat,
   branch: string,
   baseRef?: string,
+  checkoutExisting?: boolean,
 ): Promise<{ ok: boolean; error?: string }> {
-  const branchName = slugifyGitRefName(branch, GIT_REF_FALLBACK_WORKTREE);
+  // Checkout-existing keeps origin/foo as-is; new branches still get a git-safe slug.
+  const branchName = checkoutExisting
+    ? branch.trim()
+    : slugifyGitRefName(branch, GIT_REF_FALLBACK_WORKTREE);
   const res = await createChatWorktree({
     chatId: chat.id,
     branch: branchName,
     baseRef,
+    checkoutExisting,
   });
   if (!res.ok || !res.path) {
     return { ok: false, error: res.error ?? res.output ?? 'Could not create worktree' };

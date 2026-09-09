@@ -1,5 +1,6 @@
 /**
  * MIN-659: git name popover auto-fixes invalid branch/worktree names.
+ * Start-from / check-out row for New branch and Add worktree.
  */
 
 import assert from 'node:assert/strict';
@@ -10,7 +11,15 @@ import {
   closeGitPanelNamePopover,
   openGitPanelNamePopover,
   openGitRefNamePopover,
+  type GitRefCreateResult,
 } from '../../src/ui/git-panel-name-popover.ts';
+
+const BRANCH_LISTS = {
+  current: 'feature/open',
+  local: ['main', 'feature/open'],
+  remote: ['remotes/origin/main'],
+  lockedLocal: ['locked-elsewhere'],
+};
 
 describe('git-panel-name-popover slug preview (MIN-659)', () => {
   let win: InstanceType<typeof Window>;
@@ -29,7 +38,7 @@ describe('git-panel-name-popover slug preview (MIN-659)', () => {
   });
 
   test('defaults to a title slug and previews Test Worktree as test-worktree', () => {
-    const submitted: string[] = [];
+    const submitted: GitRefCreateResult[] = [];
     const anchor = win.document.getElementById('anchor') as HTMLButtonElement;
     openGitRefNamePopover({
       anchor,
@@ -38,8 +47,9 @@ describe('git-panel-name-popover slug preview (MIN-659)', () => {
       defaultTitle: 'Fix login bug',
       defaultPath: '/tmp/opaque-chat-id',
       reserved: ['main'],
-      onSubmit: (name) => {
-        submitted.push(name);
+      branchLists: BRANCH_LISTS,
+      onSubmit: (result) => {
+        submitted.push(result);
       },
     });
 
@@ -61,18 +71,21 @@ describe('git-panel-name-popover slug preview (MIN-659)', () => {
       (btn) => btn.textContent === 'Create',
     );
     create?.click();
-    assert.deepEqual(submitted, ['test-worktree']);
+    assert.deepEqual(submitted, [
+      { name: 'test-worktree', startPoint: 'feature/open', checkoutExisting: false },
+    ]);
   });
 
   test('illegal-only input submits the worktree fallback instead of erroring', () => {
-    const submitted: string[] = [];
+    const submitted: GitRefCreateResult[] = [];
     const anchor = win.document.getElementById('anchor') as HTMLButtonElement;
     openGitRefNamePopover({
       anchor,
       title: 'Add worktree',
       kind: 'worktree',
-      onSubmit: (name) => {
-        submitted.push(name);
+      branchLists: BRANCH_LISTS,
+      onSubmit: (result) => {
+        submitted.push(result);
       },
     });
 
@@ -90,7 +103,9 @@ describe('git-panel-name-popover slug preview (MIN-659)', () => {
       (btn) => btn.textContent === 'Create',
     );
     create?.click();
-    assert.deepEqual(submitted, ['worktree']);
+    assert.deepEqual(submitted, [
+      { name: 'worktree', startPoint: 'feature/open', checkoutExisting: false },
+    ]);
   });
 
   test('stash-style popover without normalize still requires a non-empty name', () => {
@@ -111,5 +126,99 @@ describe('git-panel-name-popover slug preview (MIN-659)', () => {
     create?.click();
     assert.deepEqual(submitted, []);
     assert.ok(win.document.querySelector('.git-panel-name-popover'));
+  });
+
+  test('worktree check out hides the name field and submits the selected ref', () => {
+    const submitted: GitRefCreateResult[] = [];
+    const anchor = win.document.getElementById('anchor') as HTMLButtonElement;
+    openGitRefNamePopover({
+      anchor,
+      title: 'Add worktree',
+      kind: 'worktree',
+      branchLists: BRANCH_LISTS,
+      onSubmit: (result) => {
+        submitted.push(result);
+      },
+    });
+
+    const checkoutBtn = [...win.document.querySelectorAll('button')].find(
+      (btn) => btn.textContent === 'Check out',
+    );
+    assert.ok(checkoutBtn);
+    checkoutBtn.click();
+
+    const nameField = win.document.querySelector(
+      '.git-panel-name-popover__name',
+    ) as HTMLElement;
+    assert.equal(nameField.hasAttribute('hidden'), true);
+
+    const select = win.document.querySelector(
+      '.git-panel-name-popover__select',
+    ) as HTMLSelectElement;
+    assert.equal(select.value, 'main');
+    assert.equal(select.querySelector('option[value="feature/open"]')?.disabled, true);
+    assert.equal(select.querySelector('option[value="locked-elsewhere"]')?.disabled, true);
+
+    const create = [...win.document.querySelectorAll('button')].find(
+      (btn) => btn.textContent === 'Create',
+    );
+    create?.click();
+    assert.deepEqual(submitted, [
+      { name: 'main', startPoint: 'main', checkoutExisting: true },
+    ]);
+  });
+
+  test('new branch has a start-from select and no checkout toggle', () => {
+    const submitted: GitRefCreateResult[] = [];
+    const anchor = win.document.getElementById('anchor') as HTMLButtonElement;
+    openGitRefNamePopover({
+      anchor,
+      title: 'New branch',
+      kind: 'branch',
+      branchLists: BRANCH_LISTS,
+      onSubmit: (result) => {
+        submitted.push(result);
+      },
+    });
+
+    assert.equal(
+      [...win.document.querySelectorAll('button')].some((btn) => btn.textContent === 'Check out'),
+      false,
+    );
+    const select = win.document.querySelector(
+      '.git-panel-name-popover__select',
+    ) as HTMLSelectElement;
+    assert.equal(select.value, 'feature/open');
+    assert.ok(select.querySelector('option[value="origin/main"]'));
+
+    const create = [...win.document.querySelectorAll('button')].find(
+      (btn) => btn.textContent === 'Create',
+    );
+    create?.click();
+    assert.equal(submitted[0]?.startPoint, 'feature/open');
+    assert.equal(submitted[0]?.checkoutExisting, false);
+  });
+
+  test('git-graph fixed start point hides the start-from select', () => {
+    const submitted: GitRefCreateResult[] = [];
+    const anchor = win.document.getElementById('anchor') as HTMLButtonElement;
+    openGitRefNamePopover({
+      anchor,
+      title: 'Create branch',
+      kind: 'branch',
+      fixedStartPoint: 'abc1234',
+      branchLists: BRANCH_LISTS,
+      onSubmit: (result) => {
+        submitted.push(result);
+      },
+    });
+
+    assert.equal(win.document.querySelector('.git-panel-name-popover__select'), null);
+    const create = [...win.document.querySelectorAll('button')].find(
+      (btn) => btn.textContent === 'Create',
+    );
+    create?.click();
+    assert.equal(submitted[0]?.startPoint, 'abc1234');
+    assert.equal(submitted[0]?.checkoutExisting, false);
   });
 });

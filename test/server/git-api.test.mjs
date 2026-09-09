@@ -361,6 +361,87 @@ describe('git API', () => {
     assert.equal(removed.ok, true);
   });
 
+  test('worktreeAdd starts a new branch from baseRef instead of HEAD', async () => {
+    const before = await branches({ cwd: repoDir });
+    const original = before.current;
+    await checkout({ cwd: repoDir, branch: 'wt-base-src', create: true });
+    await fs.writeFile(path.join(repoDir, 'wt-base-only.txt'), 'from-base\n', 'utf8');
+    await execFileAsync('git', ['add', 'wt-base-only.txt'], { cwd: repoDir, windowsHide: true });
+    await execFileAsync('git', ['commit', '-m', 'wt base src'], {
+      cwd: repoDir,
+      windowsHide: true,
+    });
+    const back = await checkout({ cwd: repoDir, branch: original });
+    assert.equal(back.ok, true);
+
+    const wtPath = path.join(repoDir, '.worktrees', 'wt-from-base');
+    const added = await worktreeAdd({
+      cwd: repoDir,
+      branch: 'wt-from-base',
+      path: wtPath,
+      baseRef: 'wt-base-src',
+    });
+    assert.equal(added.ok, true);
+    assert.equal(added.branch, 'wt-from-base');
+    const marker = await fs.readFile(path.join(wtPath, 'wt-base-only.txt'), 'utf8');
+    assert.match(marker, /from-base/);
+    await assert.rejects(() => fs.access(path.join(repoDir, 'wt-base-only.txt')));
+
+    const removed = await worktreeRemove({ cwd: repoDir, path: wtPath });
+    assert.equal(removed.ok, true);
+  });
+
+  test('worktreeAdd checkoutExisting attaches a local branch without -b', async () => {
+    const before = await branches({ cwd: repoDir });
+    const original = before.current;
+    await checkout({ cwd: repoDir, branch: 'wt-existing-co', create: true });
+    const back = await checkout({ cwd: repoDir, branch: original });
+    assert.equal(back.ok, true);
+
+    const wtPath = path.join(repoDir, '.worktrees', 'wt-existing-co');
+    const added = await worktreeAdd({
+      cwd: repoDir,
+      branch: 'wt-existing-co',
+      path: wtPath,
+      checkoutExisting: true,
+    });
+    assert.equal(added.ok, true);
+    assert.equal(added.branch, 'wt-existing-co');
+
+    const removed = await worktreeRemove({ cwd: repoDir, path: wtPath });
+    assert.equal(removed.ok, true);
+  });
+
+  test('worktreeAdd checkoutExisting rejects a branch already checked out', async () => {
+    const current = (await branches({ cwd: repoDir })).current;
+    assert.ok(current);
+    const failed = await worktreeAdd({
+      cwd: repoDir,
+      branch: current,
+      checkoutExisting: true,
+    });
+    assert.equal(failed.ok, false);
+    assert.match(failed.error ?? '', /already checked out|is already used by worktree/i);
+  });
+
+  test('worktreeAdd checkoutExisting tracks a remote-only ref', async () => {
+    const wtPath = path.join(repoDir, '.worktrees', 'wt-from-remote');
+    await execFileAsync('git', ['update-ref', 'refs/remotes/origin/wt-from-remote', 'HEAD'], {
+      cwd: repoDir,
+      windowsHide: true,
+    });
+    const added = await worktreeAdd({
+      cwd: repoDir,
+      branch: 'origin/wt-from-remote',
+      path: wtPath,
+      checkoutExisting: true,
+    });
+    assert.equal(added.ok, true);
+    assert.equal(added.branch, 'wt-from-remote');
+    const removed = await worktreeRemove({ cwd: repoDir, path: wtPath });
+    assert.equal(removed.ok, true);
+  });
+
   test('checkout create slugifies invalid branch names', async () => {
     const before = await branches({ cwd: repoDir });
     const original = before.current;

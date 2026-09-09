@@ -23,6 +23,12 @@ import {
   LLAMA_CPP_LOCAL_PROVIDER_ID,
   MLX_LM_LOCAL_PROVIDER_ID,
 } from '../runner/provider-ids.js';
+import { shouldUseOpenAiResponses } from '../../src/lib/openai-responses-route.mjs';
+import { resolveCompatibleCompletionUrl } from '../generations/openai-responses/url.js';
+import {
+  chatCompletionBodyToResponses,
+  responsesJsonToOpenAiCompletion,
+} from '../generations/openai-responses/chat-to-responses.js';
 
 const MAX_MODELS_PER_PROBE = 8;
 const MODEL_PROBE_TIMEOUT_MS = 25_000;
@@ -76,6 +82,55 @@ function resolveProbeChatCompletionsUrl(runtime) {
 }
 
 /**
+ * Probe POST URL — Responses for OpenCode Go Muse/Luna/Grok 4.6 so we do not 500.
+ *
+ * @param {object} runtime
+ * @param {string} modelId
+ */
+function resolveProbeCompletionUrl(runtime, modelId) {
+  return resolveCompatibleCompletionUrl(
+    runtime.profile.baseUrl,
+    runtime.paths.chatCompletionsPath,
+    modelId,
+  );
+}
+
+/**
+ * Map a chat-shaped probe body to Responses when the model requires it.
+ *
+ * @param {object} runtime
+ * @param {string} modelId
+ * @param {Record<string, unknown>} body
+ */
+function probeRequestBody(runtime, modelId, body) {
+  if (!shouldUseOpenAiResponses(runtime.profile.baseUrl, modelId)) return body;
+  return chatCompletionBodyToResponses(body);
+}
+
+/**
+ * Unwrap Responses JSON so streaming/tools probes still read `choices`.
+ *
+ * @param {object} runtime
+ * @param {string} modelId
+ * @param {{ ok: boolean, json: unknown, [key: string]: unknown }} result
+ */
+function unwrapProbeResult(runtime, modelId, result) {
+  if (!result.json || typeof result.json !== 'object') return result;
+  if (Array.isArray(/** @type {{ choices?: unknown }} */ (result.json).choices)) {
+    return result;
+  }
+  if (!shouldUseOpenAiResponses(runtime.profile.baseUrl, modelId)) return result;
+  try {
+    return {
+      ...result,
+      json: responsesJsonToOpenAiCompletion(result.json, modelId),
+    };
+  } catch {
+    return result;
+  }
+}
+
+/**
  * @param {object} runtime
  * @param {Array<{ id: string }>} catalog
  * @param {{ selectedModelId?: string }} [options]
@@ -89,6 +144,9 @@ function findOpenAiModelForStructuredProbe(runtime, catalog, options = {}) {
       : undefined;
   if (explicitId) {
     const row = catalogById.get(explicitId) || { id: explicitId };
+    if (shouldUseOpenAiResponses(runtime.profile?.baseUrl, row.id)) {
+      return null;
+    }
     if (resolveModelApi(runtime, row.id, row) === 'openai-v1') {
       return row.id;
     }
@@ -101,6 +159,9 @@ function findOpenAiModelForStructuredProbe(runtime, catalog, options = {}) {
   );
   for (const id of prioritized) {
     const row = catalogById.get(id) || { id };
+    if (shouldUseOpenAiResponses(runtime.profile?.baseUrl, row.id)) {
+      continue;
+    }
     if (resolveModelApi(runtime, row.id, row) === 'openai-v1') {
       return id;
     }
@@ -642,26 +703,33 @@ async function probeModelCapabilities(modelRow, runtime, signal, probeOptions = 
   }
 
   const modelId = modelRow.id;
-  const url = resolveProbeChatCompletionsUrl(runtime);
+  const url = resolveProbeCompletionUrl(runtime, modelId);
 
-  const chatBody = {
+  const chatBody = probeRequestBody(runtime, modelId, {
     model: modelId,
     messages: [{ role: 'user', content: 'ping' }],
     max_tokens: 1,
     stream: false,
-  };
+  });
 
-  const chatResult = await postChatCompletion(
-    url,
-    runtime.headers,
-    chatBody,
-    MODEL_PROBE_TIMEOUT_MS,
-    signal,
+  const chatResult = unwrapProbeResult(
+    runtime,
+    modelId,
+    await postChatCompletion(
+      url,
+      runtime.headers,
+      chatBody,
+      MODEL_PROBE_TIMEOUT_MS,
+      signal,
+    ),
   );
   applyStreamingProbe(cap, chatResult);
 
-  const toolBody = {
-    ...chatBody,
+  const toolBody = probeRequestBody(runtime, modelId, {
+    model: modelId,
+    messages: [{ role: 'user', content: 'ping' }],
+    max_tokens: 1,
+    stream: false,
     tools: [
       {
         type: 'function',
@@ -673,51 +741,64 @@ async function probeModelCapabilities(modelRow, runtime, signal, probeOptions = 
       },
     ],
     tool_choice: 'auto',
-  };
+  });
 
-  const toolResult = await postChatCompletion(
-    url,
-    runtime.headers,
-    toolBody,
-    MODEL_PROBE_TIMEOUT_MS,
-    signal,
+  const toolResult = unwrapProbeResult(
+    runtime,
+    modelId,
+    await postChatCompletion(
+      url,
+      runtime.headers,
+      toolBody,
+      MODEL_PROBE_TIMEOUT_MS,
+      signal,
+    ),
   );
   applyToolsProbe(cap, toolResult);
 
   if (!probeOptions.skipVision && chatResult.ok && cap.vision !== true) {
-    const imageProbeBody = (dataUrl) => ({
-      model: modelId,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'ping' },
-            { type: 'image_url', image_url: { url: dataUrl } },
-          ],
-        },
-      ],
-      max_tokens: 1,
-      stream: false,
-    });
+    const imageProbeBody = (dataUrl) =>
+      probeRequestBody(runtime, modelId, {
+        model: modelId,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: 'ping' },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+        max_tokens: 1,
+        stream: false,
+      });
 
-    const visionResult = await postVisionProbeCompletion(
-      url,
-      runtime.headers,
-      imageProbeBody(PROBE_IMAGE_DATA_URL),
-      MODEL_PROBE_TIMEOUT_MS,
-      signal,
+    const visionResult = unwrapProbeResult(
+      runtime,
+      modelId,
+      await postVisionProbeCompletion(
+        url,
+        runtime.headers,
+        imageProbeBody(PROBE_IMAGE_DATA_URL),
+        MODEL_PROBE_TIMEOUT_MS,
+        signal,
+      ),
     );
     const sendControl =
       visionResult.ok &&
       !isVisionProbeRuntimeCrash(visionResult) &&
       shouldSendCorruptImageVisionControl(runtime.profile);
     const controlResult = sendControl
-      ? await postVisionProbeCompletion(
-          url,
-          runtime.headers,
-          imageProbeBody(PROBE_INVALID_IMAGE_DATA_URL),
-          MODEL_PROBE_TIMEOUT_MS,
-          signal,
+      ? unwrapProbeResult(
+          runtime,
+          modelId,
+          await postVisionProbeCompletion(
+            url,
+            runtime.headers,
+            imageProbeBody(PROBE_INVALID_IMAGE_DATA_URL),
+            MODEL_PROBE_TIMEOUT_MS,
+            signal,
+          ),
         )
       : undefined;
     applyVisionProbe(cap, visionResult, controlResult);

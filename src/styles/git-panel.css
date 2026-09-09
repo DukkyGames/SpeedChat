@@ -142,7 +142,7 @@
 .git-panel-name-popover {
   position: fixed;
   z-index: 1200;
-  width: min(280px, calc(100vw - 1rem));
+  width: min(320px, calc(100vw - 1rem));
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -187,6 +187,59 @@
 .git-panel-name-popover__input:focus {
   outline: 2px solid var(--mn-accent);
   outline-offset: -1px;
+}
+
+/* Start-from / check-out row: mode toggle + ref select share one line. */
+.git-panel-name-popover__start-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+.git-panel-name-popover__modes {
+  display: inline-flex;
+  flex-shrink: 0;
+  border: 1px solid var(--mn-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.git-panel-name-popover__mode {
+  font-size: 11px;
+  padding: 6px 8px;
+  border: 0;
+  background: var(--mn-bg);
+  color: var(--mn-fg-muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.git-panel-name-popover__mode[aria-pressed='true'] {
+  background: var(--mn-accent-soft);
+  color: var(--mn-fg);
+}
+
+.git-panel-name-popover__select {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 6px 8px;
+  border: 1px solid var(--mn-border);
+  border-radius: var(--radius-sm);
+  background: var(--mn-bg);
+  color: var(--mn-fg);
+  text-overflow: ellipsis;
+}
+
+.git-panel-name-popover__select:focus {
+  outline: 2px solid var(--mn-accent);
+  outline-offset: -1px;
+}
+
+.git-panel-name-popover__name[hidden] {
+  display: none;
 }
 
 /* Live slug so the user sees the git name that will actually be created (MIN-659). */
@@ -281,6 +334,10 @@
 
 @media (hover: hover) and (pointer: fine) {
   .git-panel-action-btn:hover {
+    background: var(--mn-accent-soft);
+  }
+
+  .git-panel-name-popover__mode:hover {
     background: var(--mn-accent-soft);
   }
 }

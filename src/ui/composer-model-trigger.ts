@@ -297,7 +297,7 @@ function syncTrigger(trigger: ComposerModelTrigger): void {
   if (decodeModelSelectKey(selectValue)?.providerId === 'minnow-router') {
     const router = getRouterConfigSync().routers.find((r) => r.id === modelId);
     const assignment = !isMenubarStyleVariant(trigger.variant) ? routerAssignmentLabel(getActiveChat()?.id || '', modelId) : '';
-    trigger.labelEl.textContent = `${router?.name || modelId} · Router${assignment ? ` → ${assignment}` : ''}`;
+    trigger.labelEl.textContent = `${router?.name || modelId} · Model pool${assignment ? ` → ${assignment}` : ''}`;
   }
 
   const hasSelectable =

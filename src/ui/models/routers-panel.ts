@@ -66,7 +66,7 @@ export async function mountRoutersPanel(): Promise<void> {
   dispose?.();
   const host = document.getElementById('modelsSection-routers');
   if (!host) return;
-  host.replaceChildren(node('p', 'Loading routers…'));
+  host.replaceChildren(node('p', 'Loading model pools…'));
   let alive = true;
   let timer: ReturnType<typeof setTimeout> | undefined;
   dispose = () => { alive = false; if (timer) clearTimeout(timer); };
@@ -92,7 +92,7 @@ export async function mountRoutersPanel(): Promise<void> {
     let saving = false;
     const root = node('div', '', 'router-panel');
     const bar = node('div', '', 'router-toolbar');
-    const picker = node('select'); picker.setAttribute('aria-label', 'Router');
+    const picker = node('select'); picker.setAttribute('aria-label', 'Model pool');
     const message = node('p', '', 'router-message'); message.setAttribute('role', 'status');
     const editor = node('div', '', 'router-editor');
     const live = node('div', '', 'router-live');
@@ -109,8 +109,8 @@ export async function mountRoutersPanel(): Promise<void> {
     }
     const current = (): ModelRouter | undefined => config.routers.find((r) => r.id === selected);
     picker.onchange = () => { selected = picker.value; render(); };
-    bar.append(node('h2', 'Routers'), picker, button('New router', () => {
-      const router: ModelRouter = { id: crypto.randomUUID(), name: 'New router', enabled: true, policy: 'priority', entries: [] };
+    bar.append(node('h2', 'Model pools'), picker, button('New model pool', () => {
+      const router: ModelRouter = { id: crypto.randomUUID(), name: 'New model pool', enabled: true, policy: 'priority', entries: [] };
       config.routers.push(router); selected = router.id; markDirty(); render();
     }), save);
     root.append(bar, message, editor, live); host.replaceChildren(root);
@@ -152,7 +152,7 @@ export async function mountRoutersPanel(): Promise<void> {
       editor.replaceChildren(); live.replaceChildren();
       const router = current();
       if (!router) {
-        editor.append(node('p', 'Create a router to share model capacity across chats. Add models from My Models or your configured providers, then select the router in any chat.'));
+        editor.append(node('p', 'Create a model pool to share model capacity across chats. Add models from My Models or your configured providers, then select the model pool in any chat.'));
         return;
       }
       const header = node('div', '', 'router-fields');
@@ -236,7 +236,7 @@ export async function mountRoutersPanel(): Promise<void> {
       const chats = node('div', '', 'router-chats'); chats.append(node('h3', 'Chat activity'));
       const models = node('div', '', 'router-nodes'); models.append(node('h3', 'Model capacity'));
       const rows = [...activity.assignments].sort((a, b) => Number(activity.requests.some((r) => r.chatId === b.chatId)) - Number(activity.requests.some((r) => r.chatId === a.chatId)));
-      if (!rows.length) chats.append(node('p', 'No active or queued chats. Choose this router in the chat model picker to send a request.'));
+      if (!rows.length) chats.append(node('p', 'No active or queued chats. Choose this model pool in the chat model picker to send a request.'));
       for (const assignment of rows) {
         const request = activity.requests.find((r) => r.chatId === assignment.chatId);
         const targetEntry = router.entries.find((e) => e.id === (request?.entryId || assignment.assignedEntryId));
@@ -244,8 +244,8 @@ export async function mountRoutersPanel(): Promise<void> {
         const modelName = targetEntry ? routerEntryModelLabel(targetEntry, library) : 'Unavailable model';
         row.append(node('strong', state?.chats.find((c) => c.id === assignment.chatId)?.name || assignment.chatId), node('span', `${request?.status === 'queued' ? 'Queued · waiting for capacity' : request?.status === 'active' ? 'Generating' : 'Idle'} → ${modelName}`));
         const override = node('select'); override.setAttribute('aria-label', 'Persistent model override');
-        override.title = 'Applies to the next generation. Choose Router assignment to clear.';
-        override.append(new Option('Router assignment', ''), ...router.entries.filter((e) => e.enabled).map((e) => new Option(`${routerEntryProviderLabel(e, providerChoices)} / ${routerEntryModelLabel(e, library)}`, e.id)));
+        override.title = 'Applies to the next generation. Choose model pool assignment to clear.';
+        override.append(new Option('Model pool assignment', ''), ...router.entries.filter((e) => e.enabled).map((e) => new Option(`${routerEntryProviderLabel(e, providerChoices)} / ${routerEntryModelLabel(e, library)}`, e.id)));
         override.value = assignment.overrideEntryId || '';
         override.onchange = () => { void routerApi(`/${router.id}/override`, { chatId: assignment.chatId, entryId: override.value || null }, 'POST').then(() => { override.blur(); void refresh(); }).catch((error) => { message.textContent = error.message; }); };
         row.append(override); chats.append(row);
@@ -302,5 +302,5 @@ export async function mountRoutersPanel(): Promise<void> {
     render();
     const tick = async (): Promise<void> => { if (!alive || !host.isConnected) return; await refresh(); if (alive) timer = setTimeout(() => { void tick(); }, 2500); };
     timer = setTimeout(() => { void tick(); }, 2500);
-  } catch (error) { if (alive) host.replaceChildren(node('p', `Could not load routers: ${(error as Error).message}`), button('Retry', () => { void mountRoutersPanel(); })); }
+  } catch (error) { if (alive) host.replaceChildren(node('p', `Could not load model pools: ${(error as Error).message}`), button('Retry', () => { void mountRoutersPanel(); })); }
 }

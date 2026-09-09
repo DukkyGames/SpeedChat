@@ -42,7 +42,7 @@ export function routerAssignmentLabel(chatId: string, routerId: string): string 
 export function routerChatModelLabel(chat: { providerId?: string; modelId?: string }): string {
   if (chat.providerId !== ROUTER_PROVIDER_ID) return chat.modelId || '';
   const router = getRouterConfigSync().routers.find((r) => r.id === chat.modelId);
-  return router ? `${router.name} · Router` : 'Unavailable router';
+  return router ? `${router.name} · Model pool` : 'Unavailable model pool';
 }
 /** Provider label for a router entry (My Models instead of llama.cpp / mlx-lm). */
 export function routerEntryProviderLabel(
@@ -98,7 +98,7 @@ export function noteRouterAssignment(chatId: string, providerId: string, modelId
 export async function routerApi<T>(suffix = '', body?: unknown, method = 'GET'): Promise<T> {
   const response = await fetch(`/api/generations/routers${suffix}`, { method, headers: { 'Content-Type': 'application/json' }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
   const value = await response.json();
-  if (!response.ok) throw new Error(value.error || `Router request failed (${response.status})`);
+  if (!response.ok) throw new Error(value.error || `Model pool request failed (${response.status})`);
   return value as T;
 }
 export async function loadRouterConfig(): Promise<RouterConfig> {
@@ -138,10 +138,10 @@ export async function saveRouterConfig(config: RouterConfig): Promise<RouterConf
 }
 export function routerOptions(select: HTMLSelectElement, config: RouterConfig): void {
   select.querySelector('[data-router-group]')?.remove();
-  const group = document.createElement('optgroup'); group.label = 'Routers'; group.dataset.routerGroup = 'true';
+  const group = document.createElement('optgroup'); group.label = 'Model pools'; group.dataset.routerGroup = 'true';
   for (const router of config.routers.filter((r) => r.enabled)) {
     const option = document.createElement('option');
-    option.textContent = `${router.name} — Router`;
+    option.textContent = `${router.name} — Model pool`;
     option.value = encodeModelSelectKey(ROUTER_PROVIDER_ID, router.id);
     option.dataset.providerId = ROUTER_PROVIDER_ID;
     group.append(option);

@@ -36,7 +36,7 @@ export const MODELS_SECTION_LABELS: Record<ModelsSectionId, string> = {
   voice: 'Voice',
   providers: 'Providers',
   routing: 'Routing',
-  routers: 'Routers',
+  routers: 'Model pools',
   sampler: 'Sampler',
   thinking: 'Thinking',
   usage: 'Usage & cost',

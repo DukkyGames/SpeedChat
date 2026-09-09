@@ -14,6 +14,7 @@ import {
   listAcceptedRunImpeccableCommands,
   SCRIPT_COMMANDS,
 } from './command-routing.js';
+import { buildImpeccableSpawnEnv } from './spawn-env.js';
 
 const IMPECCABLE_TIMEOUT_MS = 60_000;
 const MAX_STDOUT_CHARS = 32_000;
@@ -96,7 +97,7 @@ function runBundledImpeccableCli(command, target, appRoot, projectRoot) {
     cliArgs,
     {
       cwd: projectRoot,
-      env: { ...process.env, IMPECCABLE_CONTEXT_DIR: projectRoot },
+      env: buildImpeccableSpawnEnv(projectRoot),
     },
     command,
     projectRoot,
@@ -133,7 +134,7 @@ function runBundledScript(command, target, appRoot, projectRoot) {
     nodeArgs,
     {
       cwd: projectRoot,
-      env: { ...process.env, IMPECCABLE_CONTEXT_DIR: projectRoot },
+      env: buildImpeccableSpawnEnv(projectRoot),
     },
     command,
     projectRoot,

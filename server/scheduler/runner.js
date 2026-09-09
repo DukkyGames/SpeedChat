@@ -22,6 +22,7 @@ import { schedulerRunHistoryPath } from './paths.js';
 import { resolveJobWorkspacePath } from './workspace.js';
 import { getSchedulerServerBaseUrl } from './server-base-url.js';
 import { resolveJobRunModel } from './resolve-job-model.js';
+import { applyNodeRuntimeEnv } from '../lsp/node-runtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(__dirname, '../..');
@@ -173,7 +174,8 @@ export async function runStoredJob(storedJob, options = {}) {
     const result = await new Promise((resolve, reject) => {
       const child = spawnImpl(process.execPath, args, {
         cwd: getAppRoot(),
-        env,
+        // Packaged Electron: run minnow.mjs as Node, not as a second app instance.
+        env: applyNodeRuntimeEnv(env, process.execPath),
         windowsHide: true,
       });
       activeChildren.set(runId, child);

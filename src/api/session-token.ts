@@ -116,3 +116,22 @@ export function withSessionToken(url: string): string {
   }
   return out;
 }
+
+/**
+ * Remove auth query params added by `withSessionToken`.
+ *
+ * Used when serializing issue attachment `<img>` / `<a>` elements back to
+ * markdown so a display-only token never lands in persisted description text.
+ */
+export function stripSessionFromUrl(url: string): string {
+  if (!url.includes('token=') && !url.includes('workspace=')) return url;
+  try {
+    const parsed = new URL(url, 'http://localhost');
+    parsed.searchParams.delete('token');
+    parsed.searchParams.delete('workspace');
+    const query = parsed.searchParams.toString();
+    return query ? `${parsed.pathname}?${query}` : parsed.pathname;
+  } catch {
+    return url;
+  }
+}

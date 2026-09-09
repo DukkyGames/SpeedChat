@@ -15,6 +15,8 @@
  * Phase 3 of `documentation/plans/issues-app-v2.md`.
  */
 
+import { displayIssueAttachmentSrc, canonicalIssueAttachmentSrc } from '../state/issue-attachments-api';
+
 // ── Patterns ─────────────────────────────────────────────────────────────────
 
 /** Matches `#KEY-12` — an issue mention that becomes a real `issueRefs` entry. */
@@ -79,23 +81,27 @@ export function inlineToHtml(markdown: string): string {
 
   text = text.replace(
     /!\[([^\]]*)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
-    (_all, alt: string, src: string, title?: string) =>
-      stash(
+    (_all, alt: string, src: string, title?: string) => {
+      const displaySrc = displayIssueAttachmentSrc(src);
+      return stash(
         vault,
-        `<img src="${escapeHtml(src)}" alt="${escapeHtml(alt)}"${
+        `<img src="${escapeHtml(displaySrc)}" alt="${escapeHtml(alt)}"${
           title ? ` title="${escapeHtml(title)}"` : ''
         }>`,
-      ),
+      );
+    },
   );
   text = text.replace(
     /\[([^\]]+)\]\(([^)\s]+)(?:\s+"([^"]*)")?\)/g,
-    (_all, label: string, href: string, title?: string) =>
-      stash(
+    (_all, label: string, href: string, title?: string) => {
+      const displayHref = displayIssueAttachmentSrc(href);
+      return stash(
         vault,
-        `<a href="${escapeHtml(href)}"${title ? ` title="${escapeHtml(title)}"` : ''}>${escapeHtml(
+        `<a href="${escapeHtml(displayHref)}"${title ? ` title="${escapeHtml(title)}"` : ''}>${escapeHtml(
           label,
         )}</a>`,
-      ),
+      );
+    },
   );
 
   text = text.replace(ISSUE_MENTION_RE, (all, id: string) =>
@@ -197,13 +203,13 @@ function nodeToInline(node: Node): string {
     case 'strike':
       return `~~${htmlToInline(el)}~~`;
     case 'a': {
-      const href = el.getAttribute('href') ?? '';
+      const href = canonicalIssueAttachmentSrc(el.getAttribute('href') ?? '');
       const label = htmlToInline(el);
       if (!href) return label;
       return `[${label}](${href})`;
     }
     case 'img': {
-      const src = el.getAttribute('src') ?? '';
+      const src = canonicalIssueAttachmentSrc(el.getAttribute('src') ?? '');
       const alt = el.getAttribute('alt') ?? '';
       return `![${alt}](${src})`;
     }

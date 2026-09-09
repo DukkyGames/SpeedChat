@@ -7,7 +7,7 @@ import {
   deleteIssueAttachmentBytes,
   formatAttachmentSize,
   isImageAttachment,
-  issueAttachmentUrl,
+  issueAttachmentDisplayUrl,
   uploadIssueAttachment,
 } from '../state/issue-attachments-api';
 import { hasExternalFileDrag } from '../attachments/external-file-drop';
@@ -79,11 +79,11 @@ function buildAttachmentRow(
   if (isImageAttachment(attachment)) {
     const link = document.createElement('a');
     link.className = 'issues-attachment__thumb';
-    link.href = issueAttachmentUrl(attachment);
+    link.href = issueAttachmentDisplayUrl(attachment);
     link.target = '_blank';
     link.rel = 'noreferrer';
     const img = document.createElement('img');
-    img.src = issueAttachmentUrl(attachment);
+    img.src = issueAttachmentDisplayUrl(attachment);
     img.alt = attachment.name;
     img.loading = 'lazy';
     link.appendChild(img);
@@ -95,7 +95,7 @@ function buildAttachmentRow(
 
   const name = document.createElement('a');
   name.className = 'issues-attachment__name';
-  name.href = issueAttachmentUrl(attachment);
+  name.href = issueAttachmentDisplayUrl(attachment);
   name.target = '_blank';
   name.rel = 'noreferrer';
   name.textContent = attachment.name;

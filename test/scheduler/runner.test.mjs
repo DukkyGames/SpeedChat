@@ -109,6 +109,66 @@ describe('scheduler runner', () => {
     assert.ok(after?.nextRunAt);
   });
 
+  test('sets ELECTRON_RUN_AS_NODE when the server is Electron', async () => {
+    const payload = {
+      version: 1,
+      ok: true,
+      exitCode: 0,
+      assistantFinal: 'Electron spawn',
+      error: null,
+    };
+
+    /** @type {NodeJS.ProcessEnv | undefined} */
+    let capturedEnv;
+
+    const fakeSpawn = (_execPath, _args, options) => {
+      capturedEnv = options?.env;
+      const handlers = {};
+      return {
+        stdout: {
+          on: (event, fn) => {
+            if (event === 'data') handlers.stdout = fn;
+          },
+        },
+        stderr: { on: () => undefined },
+        on: (event, fn) => {
+          if (event === 'close') {
+            queueMicrotask(() => {
+              handlers.stdout?.(Buffer.from(`${JSON.stringify(payload)}\n`));
+              fn(0);
+            });
+          }
+        },
+        kill: () => undefined,
+      };
+    };
+
+    const created = await createJob({
+      label: 'Electron spawn env',
+      schedule: { kind: 'interval', value: '60s' },
+      prompt: 'Say OK',
+      modeId: 'build',
+      channels: ['in_app'],
+    });
+
+    const stored = await getStoredJobById(created.id);
+    assert.ok(stored);
+
+    const hadElectron = 'electron' in process.versions;
+    process.versions.electron = '43.0.0-test';
+    try {
+      await runStoredJob(stored, {
+        baseUrl: 'http://127.0.0.1:5173',
+        spawn: fakeSpawn,
+      });
+    } finally {
+      if (!hadElectron) delete process.versions.electron;
+    }
+
+    assert.equal(capturedEnv?.ELECTRON_RUN_AS_NODE, '1');
+    assert.equal(capturedEnv?.BROWSER, 'none');
+  });
+
   test('passes explicit --provider and --model when job pins a model', async () => {
     const payload = {
       version: 1,

@@ -9,8 +9,11 @@
  * Phase 2 of `documentation/plans/issues-app-v2.md`.
  */
 
+import { stripSessionFromUrl, withSessionToken } from '../api/session-token';
 import { getLocalServerAvailable } from '../tools/client';
 import type { IssueAttachment } from '../types';
+
+const ISSUE_ATTACHMENT_ROUTE = '/api/issues/attachments';
 
 /** What the server hands back after storing bytes. */
 export interface StoredAttachment {
@@ -76,7 +79,24 @@ export async function uploadIssueAttachment(
 export function issueAttachmentUrl(attachment: Pick<IssueAttachment, 'path'>): string {
   const key = attachmentKey(attachment);
   // Parentheses are legal in filenames but delimit Markdown image destinations.
-  return `/api/issues/attachments?key=${encodeURIComponent(key).replace(/\(/g, '%28').replace(/\)/g, '%29')}`;
+  return `${ISSUE_ATTACHMENT_ROUTE}?key=${encodeURIComponent(key).replace(/\(/g, '%28').replace(/\)/g, '%29')}`;
+}
+
+/** Browser-facing URL for `<img>` / `<a>` — includes the session token query param. */
+export function issueAttachmentDisplayUrl(attachment: Pick<IssueAttachment, 'path'>): string {
+  return withSessionToken(issueAttachmentUrl(attachment));
+}
+
+/** Add auth params when rendering stored attachment URLs in the DOM. */
+export function displayIssueAttachmentSrc(src: string): string {
+  if (!src.startsWith(ISSUE_ATTACHMENT_ROUTE)) return src;
+  return withSessionToken(stripSessionFromUrl(src));
+}
+
+/** Canonical attachment URL for markdown persistence (no auth query params). */
+export function canonicalIssueAttachmentSrc(src: string): string {
+  if (!src.startsWith(ISSUE_ATTACHMENT_ROUTE)) return src;
+  return stripSessionFromUrl(src);
 }
 
 /** `<issueId>/<name>` for an attachment record. */

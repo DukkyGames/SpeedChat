@@ -1080,6 +1080,11 @@ function cloneState(state: IssuesState): IssuesState {
   return JSON.parse(JSON.stringify(state)) as IssuesState;
 }
 
+/** Persistence should not repaint subscribers when the visible state is unchanged. */
+function issuesStatesEqual(a: IssuesState, b: IssuesState): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /** Serialize read/merge/write across renderer windows as well as within this one. */
 function withIssuesStorageLock<T>(work: () => Promise<T>): Promise<T> {
   const run = () => typeof navigator !== 'undefined' && navigator.locks
@@ -1100,9 +1105,12 @@ export async function refreshIssuesFromStorage(): Promise<void> {
     if (!issuesState) return;
     const remote = await readPersistedIssues();
     if (!remote) return;
-    issuesState = persistedIssuesBase ? mergeIssuesState(persistedIssuesBase, issuesState, remote) : issuesState;
+    const current = issuesState;
+    const next = persistedIssuesBase ? mergeIssuesState(persistedIssuesBase, current, remote) : current;
+    const changed = !issuesStatesEqual(current, next);
+    issuesState = next;
     persistedIssuesBase = cloneState(remote);
-    emitIssuesChange();
+    if (changed) emitIssuesChange();
   });
 }
 
@@ -1119,10 +1127,13 @@ export async function saveIssuesNow(): Promise<void> {
       if (isServerStorageMode()) await putIssues(merged);
       else localStorage.setItem(ISSUES_STORAGE_KEY, JSON.stringify(merged));
       // The UI may have changed while PUT was pending. Keep that delta pending.
-      issuesState = mergeIssuesState(before, issuesState, merged);
+      const current = issuesState;
+      const next = mergeIssuesState(before, current, merged);
+      const changed = !issuesStatesEqual(current, next);
+      issuesState = next;
       persistedIssuesBase = cloneState(merged);
       try { localStorage.setItem(ISSUES_CHANGED_KEY, `${Date.now()}:${Math.random()}`); } catch {}
-      emitIssuesChange();
+      if (changed) emitIssuesChange();
     } catch (error) {
       const message = error instanceof Error && error.message.startsWith('Issue ID ')
         ? error.message : 'Could not save issues to ~/.minnow';

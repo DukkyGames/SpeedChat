@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { afterEach, beforeEach, test } from 'node:test';
 import { setStorageModeForTests } from '../../src/config/storage-mode.ts';
 import { setIssuesStateForTests, refreshIssuesFromStorage, saveIssuesNow, findIssueById, updateIssue, deleteIssue } from '../../src/state/issues-store.ts';
+import { clearIssuesListenersForTests, subscribeIssuesChanges } from '../../src/state/issues-events.ts';
 import type { IssuesState } from '../../src/types.ts';
 
 const originalFetch = globalThis.fetch;
@@ -24,9 +25,22 @@ beforeEach(() => {
   };
 });
 afterEach(() => {
+  clearIssuesListenersForTests();
   setIssuesStateForTests(null);
   setStorageModeForTests(null);
   globalThis.fetch = originalFetch;
+});
+
+test('unchanged persistence does not notify UI subscribers', async () => {
+  // Let storage parsing add any schema defaults before observing steady-state writes.
+  await refreshIssuesFromStorage();
+  let changes = 0;
+  subscribeIssuesChanges(() => { changes += 1; });
+
+  await refreshIssuesFromStorage();
+  await saveIssuesNow();
+
+  assert.equal(changes, 0);
 });
 
 test('save merges another window changes before writing', async () => {

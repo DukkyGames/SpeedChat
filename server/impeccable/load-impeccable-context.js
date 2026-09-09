@@ -7,6 +7,7 @@
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { buildImpeccableSpawnEnv } from './spawn-env.js';
 
 const CONTEXT_TIMEOUT_MS = 30_000;
 const MAX_STDOUT_CHARS = 96_000;
@@ -34,10 +35,8 @@ export function toolLoadImpeccableContext(appRoot, workspaceRoot) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [scriptPath], {
       cwd: workspaceRoot,
-      env: {
-        ...process.env,
-        IMPECCABLE_CONTEXT_DIR: workspaceRoot,
-      },
+      // Packaged Electron: ELECTRON_RUN_AS_NODE so execPath runs as Node, not a second app.
+      env: buildImpeccableSpawnEnv(workspaceRoot),
     });
 
     let stdout = '';

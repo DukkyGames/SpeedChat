@@ -59,6 +59,14 @@ describe('inlineToHtml', () => {
     );
   });
 
+  test('adds session token to issue attachment image URLs for browser fetches', () => {
+    const globalAny = globalThis as { window?: { __MINNOW_SESSION_TOKEN__?: string } };
+    globalAny.window = { __MINNOW_SESSION_TOKEN__: 'test-session-token' };
+    const html = inlineToHtml('![shot](/api/issues/attachments?key=MIN-1%2Fscreen.png)');
+    assert.match(html, /src="\/api\/issues\/attachments\?key=MIN-1%2Fscreen\.png&amp;token=test-session-token"/);
+    delete globalAny.window;
+  });
+
   test('a # inside a URL does not become an issue chip', () => {
     const html = inlineToHtml('[x](https://github.com/o/r/issues/12#note)');
     assert.ok(!html.includes('mn-mention'));
@@ -118,6 +126,14 @@ describe('htmlToInline', () => {
   test('round-trips a mixed line', () => {
     const source = 'A **bold** and *em* with `code` and [a](https://x.test) and #MIN-1';
     assert.equal(htmlToInline(host(inlineToHtml(source))), source);
+  });
+
+  test('strips session token from issue attachment images on serialize', () => {
+    const globalAny = globalThis as { window?: { __MINNOW_SESSION_TOKEN__?: string } };
+    globalAny.window = { __MINNOW_SESSION_TOKEN__: 'test-session-token' };
+    const source = '![shot](/api/issues/attachments?key=MIN-1%2Fscreen.png)';
+    assert.equal(htmlToInline(host(inlineToHtml(source))), source);
+    delete globalAny.window;
   });
 });
 

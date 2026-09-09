@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, test } from 'node:test';
 import { Window } from 'happy-dom';
 import type { AgentCliKind, AgentCliStatus } from '../../src/models/agent-clis.ts';
 import {
+  buildAgentCliInstallCommand,
   buildAgentCliLoginCommand,
   mountCliPanel,
   setCliPanelDepsForTests,
@@ -78,7 +79,8 @@ describe('Models CLI panel', () => {
     const rows = [...document.querySelectorAll<HTMLElement>('.models-cli-row')];
     assert.deepEqual(rows.map((row) => row.dataset.kind), ['claude', 'codex', 'cursor']);
     assert.match(rows[0].textContent ?? '', /Not installed/);
-    assert.match(rows[0].textContent ?? '', /Copy install command/);
+    assert.ok([...rows[0].querySelectorAll('button')].some((button) => button.textContent === 'Install'));
+    assert.equal(rows[0].querySelector('.models-cli-install'), null);
     assert.match(rows[1].textContent ?? '', /Token configured/);
     assert.match(rows[1].textContent ?? '', /file-backed Codex login/);
     assert.equal(rows[1].querySelector<HTMLInputElement>('input[aria-label="Enable Codex CLI provider"]')?.checked, true);
@@ -89,6 +91,25 @@ describe('Models CLI panel', () => {
     const cursorPath = rows[2].querySelector<HTMLInputElement>('input[name="binPath"]');
     assert.equal(cursorPath?.value, '');
     assert.equal(cursorPath?.placeholder, '/usr/local/bin/cursor');
+  });
+
+  test('uses the PowerShell Cursor installer on Windows shells', () => {
+    assert.equal(
+      buildAgentCliInstallCommand('claude'),
+      'npm install -g @anthropic-ai/claude-code',
+    );
+    assert.equal(
+      buildAgentCliInstallCommand('cursor', '/bin/zsh'),
+      'curl https://cursor.com/install -fsS | bash',
+    );
+    assert.equal(
+      buildAgentCliInstallCommand('cursor', 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'),
+      "irm 'https://cursor.com/install?win32=true' | iex",
+    );
+    assert.equal(
+      buildAgentCliInstallCommand('cursor', 'C:\\Windows\\System32\\cmd.exe'),
+      "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm 'https://cursor.com/install?win32=true' | iex\"",
+    );
   });
 
   test('uses fixed auth argv and safely quotes an executable override for the tab shell', () => {
@@ -181,5 +202,21 @@ describe('Models CLI panel', () => {
     resolveList([cli('claude')]);
     await mounting;
     assert.equal(document.querySelector('.models-cli-row'), null);
+  });
+
+  test('launches install through the terminal dependency', async () => {
+    const installs: AgentCliKind[] = [];
+    setCliPanelDepsForTests({
+      list: async () => [cli('cursor', { installed: false, authStatus: 'signed-out' })],
+      launchInstall: async (status) => { installs.push(status.kind); },
+    });
+    await mountCliPanel();
+    const install = [...document.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent === 'Install');
+    assert.ok(install);
+    install.click();
+    await tick();
+    assert.deepEqual(installs, ['cursor']);
+    assert.match(document.body.textContent ?? '', /Cursor Agent install started in Terminal/);
   });
 });

@@ -8,7 +8,7 @@ import {
   type AgentCliStatus,
 } from '../../models/agent-clis';
 import { invalidateProviderCache } from '../../providers/store';
-import { copyText, el, skeletonRows } from './dom';
+import { el, skeletonRows } from './dom';
 
 const CLI_ORDER: AgentCliKind[] = ['claude', 'codex', 'cursor'];
 const LOGIN_COMMANDS: Record<AgentCliKind, string> = {
@@ -16,6 +16,14 @@ const LOGIN_COMMANDS: Record<AgentCliKind, string> = {
   codex: 'codex -c cli_auth_credentials_store=file login',
   cursor: 'cursor-agent login',
 };
+const INSTALL_COMMANDS: Record<AgentCliKind, string> = {
+  claude: 'npm install -g @anthropic-ai/claude-code',
+  codex: 'npm install -g @openai/codex',
+  cursor: 'curl https://cursor.com/install -fsS | bash',
+};
+const CURSOR_INSTALL_POWERSHELL = "irm 'https://cursor.com/install?win32=true' | iex";
+const CURSOR_INSTALL_CMD =
+  "powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm 'https://cursor.com/install?win32=true' | iex\"";
 
 interface CliPanelDeps {
   list: typeof listAgentClis;
@@ -23,6 +31,7 @@ interface CliPanelDeps {
   setEnabled: typeof setAgentCliEnabled;
   updateSettings: typeof updateAgentCliSettings;
   launchSignIn: (status: AgentCliStatus) => Promise<void>;
+  launchInstall: (status: AgentCliStatus) => Promise<void>;
 }
 
 const LOGIN_ARGS: Record<AgentCliKind, string> = {
@@ -31,11 +40,19 @@ const LOGIN_ARGS: Record<AgentCliKind, string> = {
   cursor: 'login',
 };
 
+function isPowerShellShell(shell: string | undefined): boolean {
+  return /\b(?:pwsh|powershell)(?:\.exe)?$/i.test(shell ?? '');
+}
+
+function isCmdShell(shell: string | undefined): boolean {
+  return /\bcmd(?:\.exe)?$/i.test(shell ?? '');
+}
+
 function quoteExecutable(path: string, shell: string | undefined): string {
-  if (/\b(?:pwsh|powershell)(?:\.exe)?$/i.test(shell ?? '')) {
+  if (isPowerShellShell(shell)) {
     return `& '${path.replaceAll("'", "''")}'`;
   }
-  if (/\bcmd(?:\.exe)?$/i.test(shell ?? '')) {
+  if (isCmdShell(shell)) {
     return `"${path.replaceAll('"', '""')}"`;
   }
   return `'${path.replaceAll("'", `'"'"'`)}'`;
@@ -51,7 +68,20 @@ export function buildAgentCliLoginCommand(
     : LOGIN_COMMANDS[status.kind];
 }
 
-async function defaultLaunchSignIn(status: AgentCliStatus): Promise<void> {
+/** Vendor install command matched to the destination terminal shell. */
+export function buildAgentCliInstallCommand(kind: AgentCliKind, shell?: string): string {
+  if (kind !== 'cursor') return INSTALL_COMMANDS[kind];
+  if (isPowerShellShell(shell)) return CURSOR_INSTALL_POWERSHELL;
+  if (isCmdShell(shell)) return CURSOR_INSTALL_CMD;
+  if (!shell && typeof navigator !== 'undefined' && /windows/i.test(navigator.userAgent)) {
+    return CURSOR_INSTALL_POWERSHELL;
+  }
+  return INSTALL_COMMANDS.cursor;
+}
+
+async function runCommandInNewTerminal(
+  buildCommand: (shell?: string) => string,
+): Promise<void> {
   const [{ launchApp }, terminalPanel, terminalTabs, terminalXterm] = await Promise.all([
     import('../../os/router'),
     import('../terminal-panel'),
@@ -73,8 +103,15 @@ async function defaultLaunchSignIn(status: AgentCliStatus): Promise<void> {
   const tabId = await terminalTabs.addTab();
   await terminalXterm.waitForTerminalInputReady(tabId);
   const shell = terminalTabs.getTerminalTabShellProfile(tabId)?.shell;
-  const command = buildAgentCliLoginCommand(status, shell);
-  terminalXterm.insertTextAtTerminalInput(`${command}\r`);
+  terminalXterm.insertTextAtTerminalInput(`${buildCommand(shell)}\r`);
+}
+
+async function defaultLaunchSignIn(status: AgentCliStatus): Promise<void> {
+  await runCommandInNewTerminal((shell) => buildAgentCliLoginCommand(status, shell));
+}
+
+async function defaultLaunchInstall(status: AgentCliStatus): Promise<void> {
+  await runCommandInNewTerminal((shell) => buildAgentCliInstallCommand(status.kind, shell));
 }
 
 const defaultDeps: CliPanelDeps = {
@@ -83,6 +120,7 @@ const defaultDeps: CliPanelDeps = {
   setEnabled: setAgentCliEnabled,
   updateSettings: updateAgentCliSettings,
   launchSignIn: defaultLaunchSignIn,
+  launchInstall: defaultLaunchInstall,
 };
 
 let deps = defaultDeps;
@@ -261,7 +299,7 @@ function renderCli(status: AgentCliStatus): HTMLElement {
   if (status.installed) {
     metadata.textContent = [status.version, status.binPath].filter(Boolean).join(' · ') || 'CLI detected';
   } else {
-    metadata.textContent = 'Install the CLI, then scan again.';
+    metadata.textContent = 'Install the CLI in Terminal, then scan again.';
   }
   identity.append(metadata);
   if (status.kind === 'codex') {
@@ -301,28 +339,21 @@ function renderCli(status: AgentCliStatus): HTMLElement {
   });
   actions.append(verify);
 
-  if (status.installed && status.authStatus !== 'signed-in' && status.authStatus !== 'token') {
+  if (!status.installed) {
+    const install = makeButton('Install', 'models-inline-btn is-primary');
+    const installing = pending.get(status.kind) === 'Opening terminal';
+    setBusy(install, installing, 'Opening…');
+    install.disabled = install.disabled || Boolean(loadController);
+    install.addEventListener('click', () => void launchInstall(status.kind));
+    actions.append(install);
+  } else if (status.authStatus !== 'signed-in' && status.authStatus !== 'token') {
     const signIn = makeButton('Sign in', 'models-inline-btn is-primary');
     signIn.disabled = pending.has(status.kind) || Boolean(loadController);
     signIn.addEventListener('click', () => void launchSignIn(status.kind));
     actions.append(signIn);
   }
 
-  if (!status.installed && status.installCommand) {
-    const install = el('div', 'models-cli-install');
-    const command = el('code', 'models-cli-install__command', status.installCommand);
-    const copy = makeButton('Copy install command');
-    copy.addEventListener('click', () => {
-      void copyText(status.installCommand, copy).then((ok) => {
-        copy.textContent = ok ? 'Copied' : 'Copy failed';
-        window.setTimeout(() => { copy.textContent = 'Copy install command'; }, 1200);
-      });
-    });
-    install.append(command, copy);
-    section.append(identity, enableLabel, actions, install);
-  } else {
-    section.append(identity, enableLabel, actions);
-  }
+  section.append(identity, enableLabel, actions);
 
   const error = itemErrors.get(status.kind);
   if (error) section.append(el('p', 'models-cli-row__error', error));
@@ -460,6 +491,24 @@ async function launchSignIn(kind: AgentCliKind): Promise<void> {
     if (!status) throw new Error('CLI status is unavailable. Scan again and retry.');
     await deps.launchSignIn(status);
     notice = `${LOGIN_COMMANDS[kind]} opened in Terminal. Finish sign-in there, then return and verify.`;
+  } catch (error) {
+    itemErrors.set(kind, errorMessage(error));
+  } finally {
+    pending.delete(kind);
+    render();
+  }
+}
+
+async function launchInstall(kind: AgentCliKind): Promise<void> {
+  itemErrors.delete(kind);
+  notice = '';
+  pending.set(kind, 'Opening terminal');
+  render();
+  try {
+    const status = statuses.find((row) => row.kind === kind);
+    if (!status) throw new Error('CLI status is unavailable. Scan again and retry.');
+    await deps.launchInstall(status);
+    notice = `${status.label} install started in Terminal. When it finishes, return and scan again.`;
   } catch (error) {
     itemErrors.set(kind, errorMessage(error));
   } finally {

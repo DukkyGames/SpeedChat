@@ -4,7 +4,11 @@ import {
   updateAgentCliProviderSettings,
 } from '../providers/store.js';
 import { detectAgentCli, verifyAgentCliAuth } from './agent-cli-detect.js';
-import { AGENT_CLI_DEFINITIONS, getAgentCliDefinition } from './agent-cli-catalog.js';
+import {
+  AGENT_CLI_DEFINITIONS,
+  getAgentCliDefinition,
+  getAgentCliInstallCommand,
+} from './agent-cli-catalog.js';
 
 function sendJson(res, status, payload) {
   res.statusCode = status;
@@ -73,7 +77,7 @@ export async function getAgentCliStatus(kind, options = {}) {
       ? { maxBudgetUsd: agentCli.maxBudgetUsd }
       : {}),
     sessionMode: 'replay',
-    installCommand: definition.installCommand,
+    installCommand: getAgentCliInstallCommand(kind),
     loginCommand: definition.loginCommand,
     checkedAt: detection.checkedAt,
     ...(detection.verifiedAt ? { verifiedAt: detection.verifiedAt } : {}),

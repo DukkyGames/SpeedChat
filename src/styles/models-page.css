@@ -2581,31 +2581,7 @@ html:not(.minnow-os-enabled) .models-page.is-open {
 }
 
 .models-cli-row__actions .models-inline-btn,
-.models-cli-install .models-inline-btn,
 .models-cli-settings .models-inline-btn { margin-top: 0; }
-
-.models-cli-install {
-  display: flex;
-  grid-column: 1 / -1;
-  gap: 10px;
-  align-items: center;
-  min-width: 0;
-  padding: 10px;
-  background: var(--mn-surface-1);
-  border: 1px solid var(--mn-border);
-  border-radius: var(--radius-sm);
-}
-
-.models-cli-install__command {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--mn-fg);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .models-cli-row__error {
   grid-column: 1 / -1;
@@ -2707,16 +2683,10 @@ html:not(.minnow-os-enabled) .models-page.is-open {
 
   .models-cli-enable,
   .models-cli-row__actions,
-  .models-cli-install,
   .models-cli-settings,
   .models-cli-row__error { grid-column: 1; }
 
   .models-cli-settings__form { grid-template-columns: 1fr; }
-
-  .models-cli-install {
-    align-items: stretch;
-    flex-direction: column;
-  }
 }
 
 /* ------------------------------------------------------- Models → Voice */

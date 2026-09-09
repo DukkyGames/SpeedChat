@@ -14,7 +14,7 @@ Claude Code, Codex, and Cursor use `agent-cli-v1` behind the existing provider r
 4. **Use a narrow bridge credential.** The shim receives an ephemeral credential for one loopback listener and one generation, never the Minnow API token. It can submit one catalog-validated tool request and cannot execute tools. The listener, credential, process tree, and temporary files share one lifetime.
 5. **Preserve useful context.** Replay drops private assistant reasoning, escapes transcript boundaries, and retains tool results. Oversized input fails with a useful error instead of silently truncating file contents. Claude images use native image content over stdin, avoiding disabled file-reading tools.
 6. **Bound all lifecycle resources.** Apply per-provider FIFO concurrency, cancellation while queued, stdout idle and wall-clock timeouts, bounded JSONL records and diagnostics, and cleanup on spawn errors, malformed output, cancellation, and successful completion. Failover is allowed only before visible output or a tool handoff.
-7. **Truthful discovery.** Installation, authentication, enabled state, and last verification are separate. Keyring-backed authentication may be unknown. Static catalogs and capabilities do not spend subscription usage. Sign-in is an explicit action in Minnow's terminal; installation is a copied instruction.
+7. **Truthful discovery.** Installation, authentication, enabled state, and last verification are separate. Keyring-backed authentication may be unknown. Static catalogs and capabilities do not spend subscription usage. Sign-in and Install are explicit actions in Minnow's terminal. Cursor's installer is shell-aware: POSIX `curl | bash`, native Windows PowerShell `irm | iex`.
 8. **Preserve compatible authentication.** Codex keys its OS credential store by its home directory, so an isolated home cannot reuse a keyring-only login. The explicit Sign in and Verify commands select Codex's supported `file` credential mode without changing the user's configuration. Isolated invocations copy the native `auth.json`, and refreshed credentials are written back only when the source has not changed since the copy. Claude retains its configured credential directory; each adapter passes only its own supported authentication environment variables.
 
 ## Work packages
@@ -45,3 +45,10 @@ CLI protocols evolve independently of Minnow. Fixture coverage demonstrates tran
 - The production build and bundle budgets pass. The CLIs panel was visually checked in dark and light themes at desktop and 390-pixel widths, including settings save and connection failure states.
 - Final focused run: **69 passed**. Packaging validation, test discovery, the 13 product-wiki tests, and 15 headless tests also pass. Explicit `minnow run` requests carry the foreground role so background-use gating does not block them.
 - Full regression run: **9,615 passed, six failed, one timed out, four skipped**. Three failures require Windows symlink privileges; three concern the existing `server/sub-agents/ws.js` purity/type-companion contract. The router queue timeout did not reproduce: its focused suite passed all nine tests. Those implementation and test files were not changed by this integration.
+
+## Follow-up: in-app Install
+
+- [x] Replace copy-install commands with **Install** buttons that open Minnow Terminal
+- [x] Run the vendor installer for the tab shell (Cursor PowerShell on Windows)
+- [x] Update Models manual, context, and CLI panel tests
+

@@ -8,6 +8,7 @@ import {
   agentCliCapabilityPatches,
   agentCliCapabilityPatchesWithConfig,
   agentCliKindForProviderId,
+  getAgentCliInstallCommand,
   listAgentCliModels,
   listAgentCliModelsWithConfig,
 } from '../../server/models/agent-cli-catalog.js';
@@ -34,6 +35,14 @@ describe('agent CLI provider seam and static catalog', () => {
     assert.equal(
       AGENT_CLI_DEFINITIONS.codex.loginCommand,
       'codex -c cli_auth_credentials_store=file login',
+    );
+    assert.equal(
+      getAgentCliInstallCommand('cursor', { platform: 'linux', shell: '/bin/bash' }),
+      'curl https://cursor.com/install -fsS | bash',
+    );
+    assert.equal(
+      getAgentCliInstallCommand('cursor', { platform: 'win32' }),
+      "irm 'https://cursor.com/install?win32=true' | iex",
     );
     assert.deepEqual(
       AGENT_CLI_DEFINITIONS.codex.authArgs,

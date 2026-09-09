@@ -7,6 +7,11 @@ import {
   CURSOR_AGENT_CLI_ID,
 } from '../../src/models/runtime-ids.mjs';
 
+const CURSOR_INSTALL_POSIX = 'curl https://cursor.com/install -fsS | bash';
+const CURSOR_INSTALL_POWERSHELL = "irm 'https://cursor.com/install?win32=true' | iex";
+const CURSOR_INSTALL_CMD =
+  'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm \'https://cursor.com/install?win32=true\' | iex"';
+
 export const AGENT_CLI_DEFINITIONS = Object.freeze({
   claude: Object.freeze({
     kind: 'claude',
@@ -33,12 +38,37 @@ export const AGENT_CLI_DEFINITIONS = Object.freeze({
     providerId: CURSOR_AGENT_CLI_ID,
     label: 'Cursor Agent',
     command: 'cursor-agent',
-    installCommand: 'curl https://cursor.com/install -fsS | bash',
+    installCommand: CURSOR_INSTALL_POSIX,
     loginCommand: 'cursor-agent login',
     versionArgs: ['--version'],
     authArgs: ['status'],
   }),
 });
+
+function isPowerShellShell(shell) {
+  return /\b(?:pwsh|powershell)(?:\.exe)?$/i.test(shell ?? '');
+}
+
+function isCmdShell(shell) {
+  return /\bcmd(?:\.exe)?$/i.test(shell ?? '');
+}
+
+/**
+ * Official vendor install one-liner for the given CLI and shell.
+ * Cursor's curl installer is POSIX-only; native Windows needs PowerShell.
+ * @param {string} kind
+ * @param {{ platform?: NodeJS.Platform, shell?: string }} [options]
+ */
+export function getAgentCliInstallCommand(kind, options = {}) {
+  const definition = getAgentCliDefinition(kind);
+  if (definition.kind !== 'cursor') return definition.installCommand;
+  const shell = options.shell;
+  if (isPowerShellShell(shell)) return CURSOR_INSTALL_POWERSHELL;
+  if (isCmdShell(shell)) return CURSOR_INSTALL_CMD;
+  const platform = options.platform ?? process.platform;
+  if (!shell && platform === 'win32') return CURSOR_INSTALL_POWERSHELL;
+  return CURSOR_INSTALL_POSIX;
+}
 
 const PROVIDER_TO_KIND = new Map(
   Object.values(AGENT_CLI_DEFINITIONS).map((definition) => [definition.providerId, definition.kind]),

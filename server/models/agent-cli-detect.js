@@ -7,7 +7,7 @@ import {
   findAgentCliOnPath,
   resolveAgentCliBin,
 } from '../generations/agent-cli/resolve-bin.js';
-import { getAgentCliDefinition } from './agent-cli-catalog.js';
+import { getAgentCliDefinition, getAgentCliInstallCommand } from './agent-cli-catalog.js';
 
 export const AGENT_CLI_DETECTION_TTL_MS = 60_000;
 const DETECTION_TIMEOUT_MS = 5_000;
@@ -160,7 +160,7 @@ export async function detectAgentCli(kind, options = {}) {
       resolvedCommand: resolved.command,
       resolvedArgsPrefix: resolved.argsPrefix,
     } : {}),
-    installCommand: definition.installCommand,
+    installCommand: getAgentCliInstallCommand(kind),
     loginCommand: definition.loginCommand,
     checkedAt: new Date(now).toISOString(),
   };

@@ -8,7 +8,7 @@ import { isStreamDomVisible } from './streaming-state';
 import { appendBubble } from '../ui/messages';
 import { scrollChatIfPinned } from '../ui/chat-scroll';
 import { markMessageSteered } from '../ui/steer-affordance';
-import { forceCloseAskQuestionModal } from '../ui/question-cards-modal';
+import { forceCloseAskQuestionModalForChat } from '../ui/question-cards-modal';
 
 type SteerEnqueuedListener = (chatId: string) => void;
 let steerEnqueuedListener: SteerEnqueuedListener | null = null;
@@ -31,7 +31,7 @@ export function formatSteerHistoryContent(text: string): string {
 export function enqueueSteerMessage(chat: Chat, text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  forceCloseAskQuestionModal();
+  forceCloseAskQuestionModalForChat(chat.id);
   chat.pendingSteerMessage = trimmed;
   touchChat(chat);
   scheduleSaveSessions();

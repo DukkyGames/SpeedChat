@@ -4,7 +4,7 @@ import {
   scheduleSaveSessions,
   touchChat,
 } from '../state/sessions';
-import { forceCloseAskQuestionModal } from '../ui/question-cards-modal';
+import { forceCloseAskQuestionModalForChat } from '../ui/question-cards-modal';
 import { isChatTurnInProgress } from './chat-turn-guard';
 import { enqueueSteerMessage } from './steer-message';
 
@@ -66,7 +66,7 @@ export function ensurePendingMessageQueue(
 export function enqueueComposerMessage(chat: Chat, text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
-  forceCloseAskQuestionModal();
+  forceCloseAskQuestionModalForChat(chat.id);
   const queue = getPendingMessageQueue(chat);
   if (!Array.isArray(chat.pendingMessageQueue)) {
     chat.pendingMessageQueue = queue;

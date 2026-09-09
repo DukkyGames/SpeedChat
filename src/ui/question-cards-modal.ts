@@ -24,7 +24,10 @@ import {
 } from './question-cards-state';
 import { getActiveComposerSurface } from './composer-surface';
 import { setComposerStreamingMode } from './composer-send';
-import { setSidebarInputPendingChatId } from './chat-item-dot';
+import {
+  addSidebarInputPendingChatId,
+  removeSidebarInputPendingChatId,
+} from './chat-item-dot';
 import { resolveOrchestratePlanScreenQuestionHost } from './orchestrate-plan-screen';
 import { resolveBoardOnboardingQuestionHost } from './orchestrate-board-onboarding-questions';
 import { resolvePromptComposerShell, resolveQuestionHost } from './prompt-host-resolve';
@@ -47,9 +50,6 @@ export interface QuestionCardsModalOptions {
   chatId?: string;
 }
 
-/** Invoked from stop-generation to close the strip without waiting for user input. */
-let requestQuestionCardsCancel: (() => void) | null = null;
-
 type ActiveQuestionModalState = {
   host: HTMLElement;
   chatId: string;
@@ -60,9 +60,15 @@ type ActiveQuestionModalState = {
   sendBtn: HTMLButtonElement | null;
   prevInputDisabled: boolean;
   prevSendDisabled: boolean;
+  /** Live panel node; parked instances keep this off the shared host. */
+  panel: HTMLElement;
+  /** Off-DOM holder so another chat's mount cannot destroy this strip. */
+  stash: DocumentFragment;
+  cancel: () => void;
 };
 
-let activeQuestionModal: ActiveQuestionModalState | null = null;
+/** One pending strip per chat; only the foreground chat's panel sits in the shared host. */
+const modalsByChatId = new Map<string, ActiveQuestionModalState>();
 
 const PLAN_SCREEN_QUESTIONS_HOST_ID = 'orchestratePlanScreenQuestions';
 const BOARD_ONBOARDING_QUESTIONS_HOST_ID = 'boardOnboardingQuestions';
@@ -106,19 +112,21 @@ function isEmbeddedQuestionsHost(host: HTMLElement): boolean {
 }
 
 export function isAskQuestionModalOpenForChat(chatId: string): boolean {
-  return Boolean(
-    requestQuestionCardsCancel &&
-      activeQuestionModal &&
-      activeQuestionModal.chatId === chatId,
-  );
+  return modalsByChatId.has(chatId.trim());
 }
 
 /** True when the open strip is embedded in the Super Plan / plan screen host. */
 export function isAskQuestionModalOnPlanScreenHost(): boolean {
-  return Boolean(
-    activeQuestionModal?.embedded &&
-      activeQuestionModal.host.id === PLAN_SCREEN_QUESTIONS_HOST_ID,
-  );
+  for (const state of modalsByChatId.values()) {
+    if (
+      !state.parked &&
+      state.embedded &&
+      state.host.id === PLAN_SCREEN_QUESTIONS_HOST_ID
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function activateComposerQuestionChrome(state: ActiveQuestionModalState): void {
@@ -126,12 +134,11 @@ function activateComposerQuestionChrome(state: ActiveQuestionModalState): void {
   state.parked = false;
   acquireUserPromptLock();
   state.composerShell?.classList.add('main-column--question-pending');
-  setSidebarInputPendingChatId(state.chatId);
-  const panel = state.host.querySelector('.question-cards-panel');
-  panel?.classList.remove('question-cards-panel--embedded');
+  addSidebarInputPendingChatId(state.chatId);
+  state.panel.classList.remove('question-cards-panel--embedded');
   const surfaceClass = resolveQuestionPanelSurfaceClass(state.host);
   if (surfaceClass) {
-    panel?.classList.add(surfaceClass);
+    state.panel.classList.add(surfaceClass);
   }
   state.host.hidden = false;
 }
@@ -142,7 +149,9 @@ function restoreComposerAfterQuestion(
   options?: { suppressFocus?: boolean },
 ): void {
   state.composerShell?.classList.remove('main-column--question-pending');
-  state.host.hidden = true;
+  if (!state.host.hasChildNodes()) {
+    state.host.hidden = true;
+  }
   releaseUserPromptLock();
   if (!isUserPromptLocked()) {
     if (state.msgInput) {
@@ -170,57 +179,92 @@ function deactivateComposerQuestionChrome(
   focusOverride?: HTMLElement | null,
 ): void {
   restoreComposerAfterQuestion(state, focusOverride);
-  setSidebarInputPendingChatId(null);
+  removeSidebarInputPendingChatId(state.chatId);
 }
 
 function activateEmbeddedQuestionChrome(state: ActiveQuestionModalState): void {
   state.embedded = true;
   state.parked = false;
   state.composerShell?.classList.remove('main-column--question-pending');
-  setSidebarInputPendingChatId(state.chatId);
+  addSidebarInputPendingChatId(state.chatId);
   releaseUserPromptLock();
-  const panel = state.host.querySelector('.question-cards-panel');
-  panel?.classList.add('question-cards-panel--embedded');
-  panel?.classList.remove(
+  state.panel.classList.add('question-cards-panel--embedded');
+  state.panel.classList.remove(
     'question-cards-panel--os-dock',
     'question-cards-panel--chat-app',
   );
   state.host.hidden = false;
 }
 
-function parkActiveQuestionModal(): void {
-  const state = activeQuestionModal;
-  if (!state || state.parked || !requestQuestionCardsCancel) return;
+/** True when key/focus handlers should act on this strip (not a parked sibling). */
+function isModalForeground(state: ActiveQuestionModalState): boolean {
+  if (state.parked) return false;
+  if (!state.panel.isConnected) return false;
+  if (state.host.hidden) return false;
+  return state.host.contains(state.panel);
+}
+
+function parkOthersOnHost(host: HTMLElement, except?: ActiveQuestionModalState): void {
+  for (const other of modalsByChatId.values()) {
+    if (other === except) continue;
+    if (other.panel.parentNode === host || (!other.parked && other.host === host)) {
+      parkQuestionModal(other);
+    }
+  }
+}
+
+function attachPanelToHost(state: ActiveQuestionModalState, newHost: HTMLElement): void {
+  parkOthersOnHost(newHost, state);
+  if (state.panel.parentNode !== newHost) {
+    newHost.appendChild(state.panel);
+  }
+  newHost.hidden = false;
+  const prevHost = state.host;
+  if (prevHost !== newHost && !prevHost.hasChildNodes() && isEmbeddedQuestionsHost(prevHost)) {
+    prevHost.hidden = true;
+  }
+  state.host = newHost;
+  state.parked = false;
+}
+
+function parkQuestionModal(state: ActiveQuestionModalState): void {
+  if (state.parked) return;
   state.parked = true;
-  state.host.hidden = true;
+  // Detach only from the shared composer host so another chat can mount there.
+  // Dedicated plan/board hosts keep their panel; hiding is enough.
+  if (!isEmbeddedQuestionsHost(state.host) && state.panel.parentNode === state.host) {
+    state.stash.appendChild(state.panel);
+  }
+  if (!state.host.hasChildNodes() || isEmbeddedQuestionsHost(state.host)) {
+    state.host.hidden = true;
+  }
   if (!state.embedded) {
     restoreComposerAfterQuestion(state, null, { suppressFocus: true });
   }
-  setSidebarInputPendingChatId(state.chatId);
+  addSidebarInputPendingChatId(state.chatId);
 }
 
-function unparkActiveQuestionModal(): void {
-  const state = activeQuestionModal;
-  if (!state || !state.parked || !requestQuestionCardsCancel) return;
+function unparkQuestionModal(state: ActiveQuestionModalState): void {
+  if (!state.parked) return;
   if (!isAskQuestionDomVisible(state.chatId)) return;
 
   const planHost = resolveOrchestratePlanScreenQuestionHost(state.chatId);
   if (planHost) {
-    migrateActiveQuestionModalToHost(planHost);
+    attachPanelToHost(state, planHost);
     activateEmbeddedQuestionChrome(state);
     return;
   }
 
   const boardHost = resolveBoardOnboardingQuestionHost(state.chatId);
   if (boardHost) {
-    migrateActiveQuestionModalToHost(boardHost);
+    attachPanelToHost(state, boardHost);
     activateEmbeddedQuestionChrome(state);
     return;
   }
 
   const host = resolveQuestionHost();
   if (!host) return;
-  migrateActiveQuestionModalToHost(host);
+  attachPanelToHost(state, host);
   state.composerShell = resolvePromptComposerShell();
   const surface = getActiveComposerSurface();
   state.msgInput = surface.inputEl;
@@ -233,48 +277,47 @@ export function syncAskQuestionModalOnChatSwitch(
   fromChatId: string | null | undefined,
   toChatId: string,
 ): void {
-  const state = activeQuestionModal;
-  if (!state || !requestQuestionCardsCancel) return;
-
-  if (fromChatId && state.chatId === fromChatId && toChatId !== fromChatId && !state.parked) {
-    parkActiveQuestionModal();
-    return;
+  if (fromChatId && fromChatId !== toChatId) {
+    const leaving = modalsByChatId.get(fromChatId);
+    if (leaving && !leaving.parked) parkQuestionModal(leaving);
   }
-
-  if (state.chatId === toChatId && state.parked) {
-    unparkActiveQuestionModal();
-  }
+  const arriving = modalsByChatId.get(toChatId);
+  if (arriving?.parked) unparkQuestionModal(arriving);
 }
 
-/** Park or restore the strip when the foreground app changes. */
+/** Park or restore strips when the foreground app or overlay changes. */
 export function syncAskQuestionModalOnDisplayContextChange(): void {
-  const state = activeQuestionModal;
-  if (!state || !requestQuestionCardsCancel) return;
-
-  if (isAskQuestionDomVisible(state.chatId)) {
-    if (state.parked) unparkActiveQuestionModal();
-    return;
+  for (const state of modalsByChatId.values()) {
+    if (!isAskQuestionDomVisible(state.chatId) && !state.parked) {
+      if (
+        state.embedded &&
+        isEmbeddedQuestionsHost(state.host) &&
+        state.host.isConnected
+      ) {
+        continue;
+      }
+      parkQuestionModal(state);
+    }
   }
-
-  if (!state.parked) parkActiveQuestionModal();
+  for (const state of modalsByChatId.values()) {
+    if (isAskQuestionDomVisible(state.chatId) && state.parked) {
+      unparkQuestionModal(state);
+    }
+  }
 }
 
-/** Move the active question strip to another host (plan screen ↔ composer) without cancelling the pending tool call. */
-export function migrateActiveQuestionModalToHost(newHost: HTMLElement): boolean {
-  if (!activeQuestionModal || !requestQuestionCardsCancel) return false;
-  const state = activeQuestionModal;
-  if (state.host === newHost) return true;
-
-  const panel = state.host.querySelector('.question-cards-panel');
-  if (!panel) return false;
-
-  newHost.replaceChildren();
-  newHost.appendChild(panel);
-  newHost.hidden = false;
-  state.host.replaceChildren();
+function migrateQuestionModalToHost(
+  state: ActiveQuestionModalState,
+  newHost: HTMLElement,
+): boolean {
+  if (state.host === newHost && state.panel.parentNode === newHost) {
+    newHost.hidden = false;
+    state.parked = false;
+    return true;
+  }
 
   const prevHost = state.host;
-  state.host = newHost;
+  attachPanelToHost(state, newHost);
 
   if (state.embedded && !isEmbeddedQuestionsHost(newHost)) {
     activateComposerQuestionChrome(state);
@@ -282,31 +325,48 @@ export function migrateActiveQuestionModalToHost(newHost: HTMLElement): boolean 
     activateEmbeddedQuestionChrome(state);
   }
 
-  if (isEmbeddedQuestionsHost(prevHost)) {
+  if (isEmbeddedQuestionsHost(prevHost) && !prevHost.hasChildNodes()) {
     prevHost.hidden = true;
   }
 
   return true;
 }
 
-export function forceCloseAskQuestionModalForChat(chatId?: string): void {
-  if (!requestQuestionCardsCancel) return;
-  if (chatId?.trim() && activeQuestionModal?.chatId !== chatId.trim()) return;
-  forceCloseAskQuestionModal();
+function resolveModalForMigrate(): ActiveQuestionModalState | undefined {
+  const unparked = [...modalsByChatId.values()].filter((m) => !m.parked);
+  if (unparked.length === 1) return unparked[0];
+  if (unparked.length > 1) {
+    return unparked.find((m) => m.panel.isConnected) ?? unparked[0];
+  }
+  return [...modalsByChatId.values()].find((m) => m.panel.isConnected);
 }
 
+/** Move a question strip to another host (plan screen ↔ composer) without cancelling. */
+export function migrateActiveQuestionModalToHost(newHost: HTMLElement): boolean {
+  const state = resolveModalForMigrate();
+  if (!state) return false;
+  return migrateQuestionModalToHost(state, newHost);
+}
+
+export function forceCloseAskQuestionModalForChat(chatId?: string): void {
+  const trimmed = chatId?.trim();
+  if (!trimmed) {
+    forceCloseAskQuestionModal();
+    return;
+  }
+  modalsByChatId.get(trimmed)?.cancel();
+}
+
+/** Close every pending strip (Stop all activity). */
 export function forceCloseAskQuestionModal(): void {
-  const chatId = activeQuestionModal?.chatId;
-  requestQuestionCardsCancel?.();
-  requestQuestionCardsCancel = null;
-  if (chatId) {
-    setSidebarInputPendingChatId(null);
+  for (const state of [...modalsByChatId.values()]) {
+    state.cancel();
   }
 }
 
 export function resetQuestionCardsModalForTests(): void {
   forceCloseAskQuestionModal();
-  activeQuestionModal = null;
+  modalsByChatId.clear();
 }
 
 function getQuestionHost(): HTMLElement | null {
@@ -342,6 +402,8 @@ function getOrCreateDraft(
 
 /**
  * Shows the question strip and resolves with structured JSON (answered or cancelled).
+ * If the owning chat is not the visible surface, the panel is created parked (off-DOM)
+ * so another chat's strip can occupy the shared host without mixing questions.
  */
 export function showQuestionCardsModal(
   args: AskQuestionArgs,
@@ -349,6 +411,8 @@ export function showQuestionCardsModal(
   options: QuestionCardsModalOptions = {},
 ): Promise<AskQuestionToolResult> {
   return new Promise((resolve) => {
+    const chatIdForAbort = options.chatId?.trim() || getActiveChat().id;
+
     let embedded = options.embedded === true;
     let host = options.host;
     if (!host && options.chatId) {
@@ -364,42 +428,36 @@ export function showQuestionCardsModal(
         }
       }
     }
-    if (!host) {
+    // Dedicated embed hosts (plan/board) mount immediately. Composer host only
+    // when this chat is the visible surface — otherwise park off-DOM.
+    const shouldShowNow =
+      isAskQuestionDomVisible(chatIdForAbort) || (embedded && Boolean(host));
+    if (!host && shouldShowNow) {
       host = getQuestionHost() ?? undefined;
     }
     if (!host) {
-      resolve({ status: 'cancelled', answers: [] });
-      return;
+      host = document.createElement('div');
+      host.className = 'question-host';
+      host.hidden = true;
     }
 
     const composerShell = getQuestionComposerShell();
     const { inputEl: msgInput, sendBtnEl: sendBtn } = getActiveComposerSurface();
     const prevInputDisabled = msgInput?.disabled ?? false;
     const prevSendDisabled = sendBtn?.disabled ?? false;
-    const chatIdForAbort = options.chatId?.trim() || getActiveChat().id;
-    if (!embedded) {
-      acquireUserPromptLock();
-      composerShell?.classList.add('main-column--question-pending');
-      setSidebarInputPendingChatId(chatIdForAbort);
-    } else {
-      setSidebarInputPendingChatId(chatIdForAbort);
-    }
-    if (!embedded) {
-      host.hidden = false;
-    }
-    host.replaceChildren();
+    const stash = document.createDocumentFragment();
 
-    activeQuestionModal = {
-      host,
-      chatId: chatIdForAbort,
-      embedded,
-      parked: false,
-      composerShell,
-      msgInput,
-      sendBtn,
-      prevInputDisabled,
-      prevSendDisabled,
-    };
+    if (shouldShowNow) {
+      parkOthersOnHost(host);
+      if (!embedded) {
+        acquireUserPromptLock();
+        composerShell?.classList.add('main-column--question-pending');
+      }
+      addSidebarInputPendingChatId(chatIdForAbort);
+      if (!embedded) host.hidden = false;
+    } else {
+      addSidebarInputPendingChatId(chatIdForAbort);
+    }
 
     const drafts = new Map<string, AskQuestionAnswerDraft>();
     let cardIndex = 0;
@@ -492,7 +550,28 @@ export function showQuestionCardsModal(
 
     footer.append(validation, btnSubmit, hints);
     panel.append(header, cardBody, footer);
-    host.appendChild(panel);
+
+    const modalState: ActiveQuestionModalState = {
+      host,
+      chatId: chatIdForAbort,
+      embedded,
+      parked: !shouldShowNow,
+      composerShell,
+      msgInput,
+      sendBtn,
+      prevInputDisabled,
+      prevSendDisabled,
+      panel,
+      stash,
+      cancel: () => {},
+    };
+
+    if (shouldShowNow) {
+      host.appendChild(panel);
+    } else {
+      stash.appendChild(panel);
+    }
+    modalsByChatId.set(chatIdForAbort, modalState);
     notifyAskQuestionDisplayContextChanged();
 
     let settled = false;
@@ -513,29 +592,32 @@ export function showQuestionCardsModal(
     const finish = (result: AskQuestionToolResult): void => {
       if (settled) return;
       settled = true;
-      requestQuestionCardsCancel = null;
       detachFocusTrap();
       document.removeEventListener('keydown', onDocKeyDown, true);
       if (abortListener) {
         getChatAbort(chatIdForAbort)?.signal.removeEventListener('abort', abortListener);
       }
-      const modal = activeQuestionModal;
-      if (modal && !modal.embedded) {
-        deactivateComposerQuestionChrome(modal, previousFocus);
-      } else if (previousFocus?.isConnected) {
-        previousFocus.focus();
+      const modal = modalsByChatId.get(chatIdForAbort);
+      modalsByChatId.delete(chatIdForAbort);
+      if (modal?.panel.parentNode) {
+        modal.panel.remove();
       }
-      (modal?.host ?? host).replaceChildren();
-      activeQuestionModal = null;
+      if (modal && !modal.embedded && !modal.parked) {
+        deactivateComposerQuestionChrome(modal, previousFocus);
+      } else {
+        removeSidebarInputPendingChatId(chatIdForAbort);
+        if (previousFocus?.isConnected && modal && !modal.parked) {
+          previousFocus.focus();
+        }
+      }
+      if (modal?.host && !modal.host.hasChildNodes()) {
+        modal.host.hidden = true;
+      }
       notifyAskQuestionDisplayContextChanged();
       resolve(result);
     };
 
-    requestQuestionCardsCancel = () => finish({ status: 'cancelled', answers: [] });
-
-    if (!isAskQuestionDomVisible(chatIdForAbort)) {
-      parkActiveQuestionModal();
-    }
+    modalState.cancel = () => finish({ status: 'cancelled', answers: [] });
 
     const abortListener = (): void => {
       finish({ status: 'cancelled', answers: [] });
@@ -750,7 +832,8 @@ export function showQuestionCardsModal(
     btnClose.addEventListener('click', () => finish({ status: 'cancelled', answers: [] }));
 
     const onDocKeyDown = (ev: KeyboardEvent): void => {
-      if (host.hidden) return;
+      const modal = modalsByChatId.get(chatIdForAbort);
+      if (!modal || !isModalForeground(modal)) return;
       if (ev.key === 'Escape') {
         ev.preventDefault();
         ev.stopPropagation();
@@ -770,7 +853,8 @@ export function showQuestionCardsModal(
     };
 
     trapFocusHandler = (ev: KeyboardEvent): void => {
-      if (ev.key !== 'Tab' || host.hidden) return;
+      const modal = modalsByChatId.get(chatIdForAbort);
+      if (ev.key !== 'Tab' || !modal || !isModalForeground(modal)) return;
       const nodes = listPanelFocusables(panel);
       if (nodes.length === 0) return;
       const active = document.activeElement as HTMLElement;
@@ -785,7 +869,8 @@ export function showQuestionCardsModal(
     panel.addEventListener('keydown', trapFocusHandler);
 
     focusInHandler = (ev: FocusEvent): void => {
-      if (host.hidden || settled) return;
+      const modal = modalsByChatId.get(chatIdForAbort);
+      if (!modal || !isModalForeground(modal) || settled) return;
       const target = ev.target;
       if (target instanceof HTMLElement && panel.contains(target)) return;
       focusFirstPanelControl(panel);
@@ -798,6 +883,8 @@ export function showQuestionCardsModal(
     notifyAskQuestionShown(chatIdForAbort, args);
 
     requestAnimationFrame(() => {
+      const modal = modalsByChatId.get(chatIdForAbort);
+      if (!modal || !isModalForeground(modal)) return;
       host.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
       if (questions.length === 1) {
         focusFirstPanelControl(panel);

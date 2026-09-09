@@ -132,6 +132,15 @@ describe('chat-item-dot resolveChatItemDotState', () => {
     });
     assert.equal(resolveChatItemDotState(chat({}), c), 'needs-input');
   });
+
+  test('parked ask_question chats stay needs-input via inputPendingChatIds', () => {
+    const c = ctx({
+      activeChatId: 'other',
+      inputPendingChatId: 'other',
+      inputPendingChatIds: new Set(['chat-a']),
+    });
+    assert.equal(resolveChatItemDotState(chat({}), c), 'needs-input');
+  });
 });
 
 describe('chat-item-dot visibility helpers', () => {

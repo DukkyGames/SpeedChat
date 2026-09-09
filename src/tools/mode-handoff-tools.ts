@@ -251,7 +251,7 @@ export function executeCreateChatWithMode(args: Record<string, unknown>): string
 /** Standard mode-handoff multiple-choice via ask_question UI. */
 export async function executeProposeModeSwitch(
   args: Record<string, unknown>,
-  context: { subAgentType?: string },
+  context: { subAgentType?: string; chatId?: string },
 ): Promise<string> {
   const situationRaw =
     typeof args.situation === 'string' ? args.situation.trim() : '';
@@ -280,9 +280,13 @@ export async function executeProposeModeSwitch(
     return stringifyAskQuestionResult({ status: 'error', message: parsed.error });
   }
 
-  const content = await enqueueAskQuestion(parsed.args, {
-    subAgentType: context.subAgentType,
-  });
+  const content = await enqueueAskQuestion(
+    parsed.args,
+    {
+      subAgentType: context.subAgentType,
+    },
+    context.chatId,
+  );
   const parsedAnswer = parseAskQuestionToolContent(content);
   applyPlanCompleteOrchestrateHandoff(
     situationRaw as HandoffSituation,

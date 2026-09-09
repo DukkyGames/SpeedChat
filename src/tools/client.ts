@@ -265,6 +265,7 @@ async function executeToolInner(
     }
     const content = await executeProposeModeSwitch(args, {
       subAgentType: context.subAgentType,
+      chatId: context.chatId,
     });
     return { content };
   }

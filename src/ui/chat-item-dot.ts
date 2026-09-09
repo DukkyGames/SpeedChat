@@ -9,8 +9,11 @@ const chatLastOpenedAt = new Map<string, number>();
 /** Per-chat stream phase for sidebar thinking dots (concurrent streams). */
 const streamPhaseByChatId = new Map<string, 'loading_model' | 'generating' | 'thinking'>();
 
-/** Active chat id while tool approval or ask_question UI is open. */
+/** Active chat id while a tool-approval strip is open (singleton surface). */
 let inputPendingChatId: string | null = null;
+
+/** Chats with a parked or visible ask_question strip (independent of tool approval). */
+const questionPendingChatIds = new Set<string>();
 
 export type ChatItemDotState = 'idle' | 'unread' | 'needs-input' | 'error' | 'working';
 
@@ -19,6 +22,8 @@ export interface ChatItemDotContext {
   streamingChatIds: ReadonlySet<string>;
   streamPhaseByChatId: ReadonlyMap<string, 'loading_model' | 'generating' | 'thinking'>;
   inputPendingChatId: string | null;
+  /** Optional: parked ask_question strips on chats other than `inputPendingChatId`. */
+  inputPendingChatIds?: ReadonlySet<string>;
 }
 
 /** Build context from app + module state (for sidebar render and DOM sync). */
@@ -28,6 +33,7 @@ export function getChatItemDotContext(activeChatId: string | null): ChatItemDotC
     streamingChatIds,
     streamPhaseByChatId,
     inputPendingChatId,
+    inputPendingChatIds: questionPendingChatIds,
   };
 }
 
@@ -50,9 +56,15 @@ function isChatStreamWorking(chat: Chat, ctx: ChatItemDotContext): boolean {
   );
 }
 
+/** True when this chat is blocked on a tool approval or ask_question strip. */
+function isChatInputPending(chatId: string, ctx: ChatItemDotContext): boolean {
+  if (ctx.inputPendingChatIds?.has(chatId)) return true;
+  return ctx.inputPendingChatId != null && chatId === ctx.inputPendingChatId;
+}
+
 /** One resolved visual state per chat. */
 export function resolveChatItemDotState(chat: Chat, ctx: ChatItemDotContext): ChatItemDotState {
-  if (ctx.inputPendingChatId != null && chat.id === ctx.inputPendingChatId) {
+  if (isChatInputPending(chat.id, ctx)) {
     return 'needs-input';
   }
   if (chatAwaitingUserInputTool(chat)) {
@@ -231,9 +243,24 @@ export function setSidebarStreamPhase(
   syncChatItemDotsInDom();
 }
 
-/** Marks which chat is blocked on user input (tool approval or ask_question). */
+/** Marks which chat is blocked on tool approval (singleton composer strip). */
 export function setSidebarInputPendingChatId(chatId: string | null): void {
   inputPendingChatId = chatId;
+  syncChatItemDotsInDom();
+}
+
+/** Mark a chat as waiting on an ask_question strip (visible or parked). */
+export function addSidebarInputPendingChatId(chatId: string): void {
+  const trimmed = chatId.trim();
+  if (!trimmed || questionPendingChatIds.has(trimmed)) return;
+  questionPendingChatIds.add(trimmed);
+  syncChatItemDotsInDom();
+}
+
+/** Clear the ask_question pending mark for one chat without touching others. */
+export function removeSidebarInputPendingChatId(chatId: string): void {
+  const trimmed = chatId.trim();
+  if (!trimmed || !questionPendingChatIds.delete(trimmed)) return;
   syncChatItemDotsInDom();
 }
 

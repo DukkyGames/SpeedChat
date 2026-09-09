@@ -277,7 +277,7 @@ Product send ([`sendMessageWithTools`](../src/chat/messaging.ts) / [`runChatTurn
 
 **Live context overlay (P10-I / MIN-774 / MIN-584):** [`setContextInFlightOverlay`](../src/chat/context-in-flight.ts) / `syncTurnContextUsage` keep a **per-chat** `Map` so two streaming chats cannot clobber the context ring. Driven from coalesced paint + `tool_call` as above; never from raw `delta` events. `runChatTurn` `finally` calls `clearContextInFlightOverlay(chat.id)`. Streaming ring refresh is a leading+trailing throttle (~1s), not a reset debounce, and only the active chat schedules it.
 
-Tool approval: [`src/tools/permission-gate.ts`](../src/tools/permission-gate.ts) (`full` / `ask` / `off`). [`enqueueToolApproval`](../src/tools/approval-queue.ts) takes an optional `AbortSignal` on the request: abort resolves `cancel` without showing the strip, and abort while it is open dismisses it so a cancelled run cannot execute the tool later. `ask_question` uses its own UI queue ([`src/tools/ask-question-queue.ts`](../src/tools/ask-question-queue.ts)).
+Tool approval: [`src/tools/permission-gate.ts`](../src/tools/permission-gate.ts) (`full` / `ask` / `off`). [`enqueueToolApproval`](../src/tools/approval-queue.ts) takes an optional `AbortSignal` on the request: abort resolves `cancel` without showing the strip, and abort while it is open dismisses it so a cancelled run cannot execute the tool later. `ask_question` uses a **per-chat** UI queue ([`src/tools/ask-question-queue.ts`](../src/tools/ask-question-queue.ts)): each chat drains independently, and parked strips keep their panel off the shared `#questionHost` so switching chats cannot mix or block another chat's questions.
 
 ### `/goal` and `/loop` (stateful slash commands)
 

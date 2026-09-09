@@ -62,6 +62,10 @@ describe('question-cards-modal chat scope', () => {
       '../../src/ui/question-cards-modal.ts'
     );
     resetQuestionCardsModalForTests();
+    const { resetAskQuestionQueueForTests } = await import(
+      '../../src/tools/ask-question-queue.ts'
+    );
+    resetAskQuestionQueueForTests();
     resetInstancesForTests();
     resetOsPageBridgeForTests();
     setSessionStateForTests(null);
@@ -99,9 +103,11 @@ describe('question-cards-modal chat scope', () => {
     syncAskQuestionModalOnChatSwitch('chat-a', 'chat-b');
     assert.equal(host?.hidden, true);
     assert.equal(isAskQuestionModalOpenForChat('chat-a'), true);
-
-    const closeBtn = host?.querySelector('.question-cards-icon-btn') as HTMLButtonElement;
-    closeBtn?.click();
+    // Parked panel is detached from the shared host; close by chat id.
+    const { forceCloseAskQuestionModalForChat } = await import(
+      '../../src/ui/question-cards-modal.ts'
+    );
+    forceCloseAskQuestionModalForChat('chat-a');
     const result = await modalPromise;
     assert.equal(result.status, 'cancelled');
   });
@@ -177,5 +183,208 @@ describe('question-cards-modal chat scope', () => {
     const closeBtn = host?.querySelector('.question-cards-icon-btn') as HTMLButtonElement;
     closeBtn?.click();
     await modalPromise;
+  });
+
+  test('switching to another chat shows that chat strip without answering the first', async () => {
+    const { enqueueAskQuestion, resetAskQuestionQueueForTests } = await import(
+      '../../src/tools/ask-question-queue.ts'
+    );
+    const { isAskQuestionModalOpenForChat, syncAskQuestionModalOnChatSwitch } = await import(
+      '../../src/ui/question-cards-modal.ts'
+    );
+    const { notifyAskQuestionDisplayContextChanged } = await import(
+      '../../src/chat/ask-question-display.ts'
+    );
+    const { sessionState } = await import('../../src/state/sessions.ts');
+
+    const pA = enqueueAskQuestion(
+      {
+        questions: [
+          {
+            id: 'qa1',
+            prompt: 'Question from chat A',
+            options: [
+              { id: 'a', label: 'Alpha' },
+              { id: 'b', label: 'Beta' },
+            ],
+          },
+          {
+            id: 'qa2',
+            prompt: 'Second question from chat A',
+            options: [
+              { id: 'c', label: 'Charlie' },
+              { id: 'd', label: 'Delta' },
+            ],
+          },
+        ],
+      },
+      {},
+      'chat-a',
+    );
+    const pB = enqueueAskQuestion(
+      {
+        questions: [
+          {
+            id: 'qb1',
+            prompt: 'Question from chat B',
+            options: [
+              { id: 'x', label: 'X-ray' },
+              { id: 'y', label: 'Yankee' },
+            ],
+          },
+        ],
+      },
+      {},
+      'chat-b',
+    );
+
+    const host = document.getElementById('questionHost');
+    assert.match(host?.textContent ?? '', /Question from chat A/);
+    assert.doesNotMatch(host?.textContent ?? '', /Question from chat B/);
+    assert.equal(isAskQuestionModalOpenForChat('chat-a'), true);
+    assert.equal(isAskQuestionModalOpenForChat('chat-b'), true);
+
+    if (sessionState) sessionState.activeId = 'chat-b';
+    syncAskQuestionModalOnChatSwitch('chat-a', 'chat-b');
+    notifyAskQuestionDisplayContextChanged();
+
+    assert.match(host?.textContent ?? '', /Question from chat B/);
+    assert.doesNotMatch(host?.textContent ?? '', /Question from chat A/);
+    assert.doesNotMatch(host?.textContent ?? '', /Second question from chat A/);
+
+    if (sessionState) sessionState.activeId = 'chat-a';
+    syncAskQuestionModalOnChatSwitch('chat-b', 'chat-a');
+    notifyAskQuestionDisplayContextChanged();
+
+    assert.match(host?.textContent ?? '', /Question from chat A/);
+    assert.doesNotMatch(host?.textContent ?? '', /Question from chat B/);
+    assert.match(host?.textContent ?? '', /1 \/ 2/);
+
+    const { forceCloseAskQuestionModalForChat } = await import(
+      '../../src/ui/question-cards-modal.ts'
+    );
+    forceCloseAskQuestionModalForChat('chat-a');
+    forceCloseAskQuestionModalForChat('chat-b');
+    const [aResult, bResult] = await Promise.all([pA, pB]);
+    assert.equal(JSON.parse(aResult).status, 'cancelled');
+    assert.equal(JSON.parse(bResult).status, 'cancelled');
+    resetAskQuestionQueueForTests();
+  });
+
+  test('Escape on the visible strip does not cancel a parked chat', async () => {
+    const { showQuestionCardsModal, syncAskQuestionModalOnChatSwitch, isAskQuestionModalOpenForChat } =
+      await import('../../src/ui/question-cards-modal.ts');
+    const { notifyAskQuestionDisplayContextChanged } = await import(
+      '../../src/chat/ask-question-display.ts'
+    );
+    const { sessionState } = await import('../../src/state/sessions.ts');
+
+    const pA = showQuestionCardsModal(
+      {
+        questions: [
+          {
+            id: 'qa1',
+            prompt: 'Visible A prompt',
+            options: [
+              { id: 'a', label: 'Alpha' },
+              { id: 'b', label: 'Beta' },
+            ],
+          },
+        ],
+      },
+      {},
+      { chatId: 'chat-a' },
+    );
+    const pB = showQuestionCardsModal(
+      {
+        questions: [
+          {
+            id: 'qb1',
+            prompt: 'Parked B prompt',
+            options: [
+              { id: 'x', label: 'X-ray' },
+              { id: 'y', label: 'Yankee' },
+            ],
+          },
+        ],
+      },
+      {},
+      { chatId: 'chat-b' },
+    );
+
+    const host = document.getElementById('questionHost');
+    const KeyboardEventCtor = (globalThis.window as unknown as {
+      KeyboardEvent: typeof KeyboardEvent;
+    }).KeyboardEvent;
+    document.dispatchEvent(new KeyboardEventCtor('keydown', { key: 'Escape', bubbles: true }));
+    const aResult = await pA;
+    assert.equal(aResult.status, 'cancelled');
+    assert.equal(isAskQuestionModalOpenForChat('chat-b'), true);
+    assert.doesNotMatch(host?.textContent ?? '', /Parked B prompt/);
+
+    if (sessionState) sessionState.activeId = 'chat-b';
+    syncAskQuestionModalOnChatSwitch('chat-a', 'chat-b');
+    notifyAskQuestionDisplayContextChanged();
+    assert.match(host?.textContent ?? '', /Parked B prompt/);
+
+    const { forceCloseAskQuestionModalForChat } = await import(
+      '../../src/ui/question-cards-modal.ts'
+    );
+    forceCloseAskQuestionModalForChat('chat-b');
+    const bResult = await pB;
+    assert.equal(bResult.status, 'cancelled');
+  });
+
+  test('stopGeneration for one chat does not close another chat strip', async () => {
+    const { showQuestionCardsModal, isAskQuestionModalOpenForChat } = await import(
+      '../../src/ui/question-cards-modal.ts'
+    );
+    const { stopGeneration } = await import('../../src/chat/stop-generation.ts');
+
+    const pA = showQuestionCardsModal(
+      {
+        questions: [
+          {
+            id: 'qa1',
+            prompt: 'A stop target',
+            options: [
+              { id: 'a', label: 'Alpha' },
+              { id: 'b', label: 'Beta' },
+            ],
+          },
+        ],
+      },
+      {},
+      { chatId: 'chat-a' },
+    );
+    const pB = showQuestionCardsModal(
+      {
+        questions: [
+          {
+            id: 'qb1',
+            prompt: 'B should survive stop',
+            options: [
+              { id: 'x', label: 'X-ray' },
+              { id: 'y', label: 'Yankee' },
+            ],
+          },
+        ],
+      },
+      {},
+      { chatId: 'chat-b' },
+    );
+
+    stopGeneration('chat-a');
+    const aResult = await pA;
+    assert.equal(aResult.status, 'cancelled');
+    assert.equal(isAskQuestionModalOpenForChat('chat-a'), false);
+    assert.equal(isAskQuestionModalOpenForChat('chat-b'), true);
+
+    const { forceCloseAskQuestionModalForChat } = await import(
+      '../../src/ui/question-cards-modal.ts'
+    );
+    forceCloseAskQuestionModalForChat('chat-b');
+    const bResult = await pB;
+    assert.equal(bResult.status, 'cancelled');
   });
 });

@@ -48,7 +48,7 @@ Scan the list and know, without opening a peek, what kind of work a row is.
 
 ## 6. Interaction model
 
-- **+** opens a typeahead popover (Enter / comma commit).
+- **+** opens a typeahead popover (Enter / comma commit). The flyout stays open and focused after each add so the next name can be typed immediately; click-away or Escape dismisses it.
 - **+N** opens a popover of the rest. Does not expand the row.
 - **×** removes from that issue. Catalog color stays.
 - **Right-click a chip** opens the 10-swatch picker. Changing UX recolors every UX chip.

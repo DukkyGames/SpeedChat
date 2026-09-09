@@ -137,10 +137,11 @@
   cursor: not-allowed;
 }
 
-/* Anchored name popover for branch/worktree create (Electron-safe; no window.prompt). */
+/* Anchored name popover for branch/worktree create (Electron-safe; no window.prompt).
+ * Body-portaled; stack with composer overflow / run-target menus (1200). */
 .git-panel-name-popover {
   position: fixed;
-  z-index: 60;
+  z-index: 1200;
   width: min(280px, calc(100vw - 1rem));
   padding: 10px;
   display: flex;
@@ -857,7 +858,7 @@
 
 .git-graph-context-menu {
   position: fixed;
-  z-index: 70;
+  z-index: 1200;
   min-width: 180px;
   padding: 4px;
   background: var(--mn-bg);
@@ -867,7 +868,7 @@
 }
 
 .git-graph-context-menu__submenu {
-  z-index: 71;
+  z-index: 1201;
 }
 
 .git-graph-context-menu__item {

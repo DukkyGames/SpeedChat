@@ -257,6 +257,44 @@ describe('issues labels field', () => {
     assert.equal(blurCount, 0);
   });
 
+  test('add popover stays open and focused after Enter so another label can be typed', () => {
+    const issue = seedIssue(['AUTH']);
+    const changes: string[][] = [];
+    const field = createIssuesLabelsField({
+      issueId: issue.id,
+      labels: issue.labels,
+      variant: 'detail',
+      onChange: (labels) => {
+        changes.push(labels);
+      },
+    });
+    document.body.appendChild(field);
+    field.querySelector<HTMLButtonElement>('.issues-labels-field__add')!.click();
+
+    const input = document.querySelector('.issues-labels-add-popover input');
+    assert.ok(input instanceof globalThis.HTMLInputElement);
+    input.value = 'API';
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+
+    const popover = document.querySelector('.issues-labels-add-popover');
+    assert.ok(popover instanceof globalThis.HTMLElement);
+    assert.equal(popover.isConnected, true);
+    assert.equal(input.value, '');
+    assert.equal(document.activeElement, input);
+    assert.deepEqual(changes.at(-1), ['AUTH', 'API']);
+
+    input.value = 'UX';
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert.deepEqual(changes.at(-1), ['AUTH', 'API', 'UX']);
+    assert.equal(document.activeElement, input);
+    assert.equal(document.querySelector('.issues-labels-add-popover'), popover);
+
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    assert.equal(document.querySelector('.issues-labels-add-popover')?.isConnected ?? false, false);
+  });
+
   test('onBlur does not fire when focus moves into the body-mounted add flyout', () => {
     const issue = seedIssue(['AUTH']);
     let blurCount = 0;

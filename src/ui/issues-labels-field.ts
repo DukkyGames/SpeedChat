@@ -18,6 +18,7 @@ import {
   isIssuesLabelPopoverFocused,
   mountIssueLabelFlyout,
   openIssueLabelOverflow,
+  positionIssueLabelPopover,
 } from './issues-label-chip';
 
 export type IssuesLabelsFieldOptions = {
@@ -147,16 +148,26 @@ export function createIssuesLabelsField(options: IssuesLabelsFieldOptions): HTML
     closeIssueLabelPopovers();
   };
 
+  // After a successful (or duplicate) add, keep the typeahead up so the next
+  // name can be typed immediately. Click-away and Escape still dismiss it.
+  const keepAddPopoverReady = (): void => {
+    input.value = '';
+    refreshSuggestions();
+    if (!addOpen) return;
+    positionIssueLabelPopover(addButton, popover);
+    input.focus();
+  };
+
   const addLabel = (raw: string): void => {
     const label = normalizeIssueLabel(raw);
     if (!label) return;
     const key = label.toLowerCase();
     if (currentLabels.some((entry) => entry.toLowerCase() === key)) {
-      input.value = '';
+      keepAddPopoverReady();
       return;
     }
-    closeAddPopover();
     commit([...currentLabels, label]);
+    keepAddPopoverReady();
   };
 
   const chooseSuggestion = (label: string): void => {
@@ -287,6 +298,13 @@ export function createIssuesLabelsField(options: IssuesLabelsFieldOptions): HTML
 
   input.addEventListener('keydown', (event) => {
     event.stopPropagation();
+    // Escape must close even when the suggestion list is empty (all names already applied).
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeAddPopover();
+      addButton.focus();
+      return;
+    }
     const count = optionCount();
     if (count > 0) {
       if (event.key === 'ArrowDown') {
@@ -299,12 +317,6 @@ export function createIssuesLabelsField(options: IssuesLabelsFieldOptions): HTML
         event.preventDefault();
         activeSuggestionIndex = activeSuggestionIndex <= 0 ? count - 1 : activeSuggestionIndex - 1;
         paintSuggestionsMenu();
-        return;
-      }
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        closeAddPopover();
-        addButton.focus();
         return;
       }
       if (event.key === 'Enter' && activeSuggestionIndex >= 0) {

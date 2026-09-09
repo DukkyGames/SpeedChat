@@ -1,6 +1,12 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { runProcess } from '../process-runner.js';
+import {
+  applyAgentNodeEnv,
+  findAgentCliOnPath,
+  resolveAgentCliBin,
+} from '../generations/agent-cli/resolve-bin.js';
 import {
   CLAUDE_CODE_CLI_ID,
   CODEX_CLI_ID,
@@ -98,8 +104,106 @@ const CATALOGS = Object.freeze({
   ]),
   cursor: Object.freeze([
     Object.freeze({ id: 'auto', max_context_length: 200_000, reasoning: 'none' }),
+    Object.freeze({ id: 'composer-2.5', max_context_length: 200_000, reasoning: 'none' }),
+    Object.freeze({ id: 'composer-2.5-fast', max_context_length: 200_000, reasoning: 'none' }),
+    Object.freeze({ id: 'cursor-grok-4.6-high', max_context_length: 200_000, reasoning: 'none' }),
+    Object.freeze({ id: 'cursor-grok-4.6-high-fast', max_context_length: 200_000, reasoning: 'none' }),
+    Object.freeze({ id: 'gpt-5.3-codex', max_context_length: 200_000, reasoning: 'none' }),
+    Object.freeze({ id: 'gpt-5.3-codex-high', max_context_length: 200_000, reasoning: 'none' }),
+    Object.freeze({ id: 'gpt-5.2', max_context_length: 200_000, reasoning: 'none' }),
+    Object.freeze({ id: 'claude-opus-5-thinking-high', max_context_length: 1_000_000, reasoning: 'none' }),
+    Object.freeze({ id: 'claude-sonnet-5-thinking-high', max_context_length: 1_000_000, reasoning: 'none' }),
+    Object.freeze({ id: 'gpt-5.6-sol-high', max_context_length: 1_000_000, reasoning: 'none' }),
+    Object.freeze({ id: 'gemini-3.7-flash-high', max_context_length: 200_000, reasoning: 'none' }),
   ]),
 });
+
+/** `cursor-agent --list-models` is catalog discovery, not a billed inference call. */
+const CURSOR_LIST_MODELS_TIMEOUT_MS = 15_000;
+const CURSOR_LIST_MODELS_TTL_MS = 5 * 60 * 1000;
+const CURSOR_LIST_LINE = /^([a-z0-9][a-z0-9._-]*)\s+-\s+(\S.*)$/i;
+const cursorListCache = new Map();
+const cursorListInflight = new Map();
+
+/**
+ * Parse `cursor-agent --list-models` text into catalog entries.
+ * Lines look like `auto - Auto (default)` or `claude-opus-5-thinking-high - Claude Opus 5 1M Thinking`.
+ * @param {unknown} text
+ * @returns {Array<{ id: string, max_context_length: number, reasoning: 'none' }>}
+ */
+export function parseCursorListModels(text) {
+  const rows = [];
+  const seen = new Set();
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || /^available models$/i.test(line)) continue;
+    const match = CURSOR_LIST_LINE.exec(line);
+    if (!match) continue;
+    const id = match[1];
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const label = match[2].replace(/\s+\(default\)\s*$/i, '').trim();
+    rows.push({
+      id,
+      max_context_length: /1m\b/i.test(`${id} ${label}`) ? 1_000_000 : 200_000,
+      reasoning: 'none',
+    });
+  }
+  return rows;
+}
+
+export function resetAgentCliCatalogCacheForTests() {
+  cursorListCache.clear();
+  cursorListInflight.clear();
+}
+
+/**
+ * Ask the installed Cursor CLI for the account catalog. Never starts a chat.
+ * @param {{ binPath?: string, cliToken?: string, env?: NodeJS.ProcessEnv, homeDir?: string }} [options]
+ */
+async function fetchCursorListModelsText(options = {}) {
+  const env = options.env ?? process.env;
+  const homeDir = options.homeDir ?? os.homedir();
+  const requested = typeof options.binPath === 'string' ? options.binPath.trim() : '';
+  const binPath = requested || await findAgentCliOnPath('cursor-agent', { env, homeDir });
+  if (!binPath) return '';
+  const cacheKey = `${binPath}:${homeDir}`;
+  const cached = cursorListCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < CURSOR_LIST_MODELS_TTL_MS) return cached.text;
+  const pending = cursorListInflight.get(cacheKey);
+  if (pending) return pending;
+
+  const work = (async () => {
+    let resolved;
+    try {
+      resolved = await resolveAgentCliBin({ kind: 'cursor-agent', binPath, env, homeDir });
+    } catch {
+      return '';
+    }
+    const runEnv = { ...applyAgentNodeEnv(env, resolved.command) };
+    const cliToken = typeof options.cliToken === 'string' ? options.cliToken.trim() : '';
+    if (cliToken) runEnv.CURSOR_API_KEY = cliToken;
+    try {
+      const result = await runProcess(
+        resolved.command,
+        [...resolved.argsPrefix, '--list-models'],
+        { timeout: CURSOR_LIST_MODELS_TIMEOUT_MS, env: runEnv },
+      );
+      const text = result.code === 0 ? String(result.stdout || '') : '';
+      if (text) cursorListCache.set(cacheKey, { at: Date.now(), text });
+      return text;
+    } catch {
+      return '';
+    }
+  })();
+
+  cursorListInflight.set(cacheKey, work);
+  try {
+    return await work;
+  } finally {
+    cursorListInflight.delete(cacheKey);
+  }
+}
 
 const REASONING = Object.freeze({
   claude: Object.freeze({ allowed_options: ['off', 'low', 'medium', 'high', 'max'], default: 'high' }),
@@ -142,13 +246,29 @@ function normalizeCodexReasoning(raw) {
 }
 
 /**
- * Enrich Codex from its own model-metadata cache. Reading this file does not access auth data
- * or invoke the CLI, and unavailable/corrupt caches fall back to the shipped catalog.
+ * Enrich Codex from its model-metadata cache and Cursor from `cursor-agent --list-models`.
+ * Neither path starts a chat or spends inference. Unavailable metadata falls back to the shipped catalog.
  * @param {string} providerId
- * @param {{ env?: NodeJS.ProcessEnv, homeDir?: string }} [options]
+ * @param {{ env?: NodeJS.ProcessEnv, homeDir?: string, binPath?: string, cliToken?: string, listModelsText?: string }} [options]
  */
 export async function listAgentCliModelsWithConfig(providerId, options = {}) {
   const staticRows = listAgentCliModels(providerId);
+  if (providerId === CURSOR_AGENT_CLI_ID) {
+    const text = typeof options.listModelsText === 'string'
+      ? options.listModelsText
+      : await fetchCursorListModelsText(options);
+    const parsed = parseCursorListModels(text);
+    if (parsed.length === 0) return staticRows;
+    return parsed.map((entry) => ({
+      ...entry,
+      type: 'llm',
+      state: 'loaded',
+      owned_by: 'cursor',
+      api: 'agent-cli-v1',
+      catalogVision: false,
+      reasoning: REASONING.cursor,
+    }));
+  }
   if (providerId !== CODEX_CLI_ID) return staticRows;
   const env = options.env ?? process.env;
   const homeDir = options.homeDir ?? os.homedir();

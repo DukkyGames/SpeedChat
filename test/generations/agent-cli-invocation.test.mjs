@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { prepareAgentCliInvocation, MAX_CURSOR_PROMPT_BYTES } from '../../server/generations/agent-cli/invocation.js';
+import { prepareAgentCliInvocation } from '../../server/generations/agent-cli/invocation.js';
 
 const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'minnow-agent-cli-'));
 const common = {
@@ -28,15 +28,16 @@ for (const kind of ['claude', 'codex', 'cursor']) {
     assert.equal(result.cwd, tempDir);
     assert.equal(result.env.MINNOW_CLI_BRIDGE_TOKEN, 'generation-token');
     assert.equal(result.env.SECRET_FROM_MODEL, undefined);
-    assert.equal(result.args.some((arg) => arg.includes(common.prompt)), kind === 'cursor');
+    assert.equal(result.args.some((arg) => arg.includes(common.prompt)), false);
   });
 }
 
-test('Claude and Codex send the prompt through stdin', async () => {
-  for (const kind of ['claude', 'codex']) {
+test('Claude, Codex, and Cursor send the prompt through stdin', async () => {
+  for (const kind of ['claude', 'codex', 'cursor']) {
     const result = await prepareAgentCliInvocation({ ...common, kind });
     assert.match(result.stdin, /repository/);
     assert.equal(result.args.includes(common.prompt), false);
+    assert.equal(result.args.some((arg) => arg.includes(common.systemPrompt)), false);
   }
 });
 
@@ -154,18 +155,20 @@ test('keeps only kind-specific ambient auth variables', async () => {
   }
 });
 
-test('Cursor rejects prompts over its argv limit before spawn', async () => {
-  await assert.rejects(
-    prepareAgentCliInvocation({ ...common, kind: 'cursor-agent', prompt: 'x'.repeat(MAX_CURSOR_PROMPT_BYTES + 1) }),
-    /exceeds/,
-  );
+test('Cursor keeps a large prompt off argv and on stdin', async () => {
+  const prompt = 'x'.repeat(40 * 1024);
+  const result = await prepareAgentCliInvocation({ ...common, kind: 'cursor-agent', prompt });
+  assert.equal(result.stdin.includes(prompt), true);
+  assert.equal(result.args.some((arg) => arg.includes(prompt.slice(0, 32))), false);
+  assert.ok(result.stdin.includes(common.systemPrompt));
 });
 
 test('Cursor includes system prompt and partial output controls', async () => {
   const result = await prepareAgentCliInvocation({ ...common, kind: 'cursor' });
-  assert.ok(result.args.some((arg) => arg.includes(common.systemPrompt)));
+  assert.ok(result.stdin.includes(common.systemPrompt));
   assert.ok(result.args.includes('--stream-partial-output'));
   assert.ok(result.args.includes('--approve-mcps'));
+  assert.ok(result.args.includes('--trust'));
 });
 
 test('rejects NUL bytes in prompt', async () => {

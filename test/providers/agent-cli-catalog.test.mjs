@@ -11,6 +11,7 @@ import {
   getAgentCliInstallCommand,
   listAgentCliModels,
   listAgentCliModelsWithConfig,
+  parseCursorListModels,
 } from '../../server/models/agent-cli-catalog.js';
 import { getDefaultPaths } from '../../server/providers/paths.js';
 import {
@@ -144,5 +145,43 @@ describe('agent CLI provider seam and static catalog', () => {
     } finally {
       await fs.rm(homeDir, { recursive: true, force: true });
     }
+  });
+
+  test('Cursor static catalog is more than Auto', () => {
+    const ids = listAgentCliModels('cursor-agent-cli').map((row) => row.id);
+    assert.ok(ids.includes('auto'));
+    assert.ok(ids.includes('composer-2.5'));
+    assert.ok(ids.length > 1);
+  });
+
+  test('parses cursor-agent --list-models text into selectable ids', () => {
+    const rows = parseCursorListModels([
+      'Available models',
+      '',
+      'auto - Auto (default)',
+      'composer-2.5 - Composer 2.5',
+      'claude-opus-5-thinking-high - Claude Opus 5 1M Thinking',
+      'not a model line',
+      'auto - Auto (default)',
+    ].join('\n'));
+    assert.deepEqual(rows.map((row) => row.id), ['auto', 'composer-2.5', 'claude-opus-5-thinking-high']);
+    assert.equal(rows[0].max_context_length, 200_000);
+    assert.equal(rows[2].max_context_length, 1_000_000);
+  });
+
+  test('enriches Cursor from --list-models text without an inference probe', async () => {
+    const rows = await listAgentCliModelsWithConfig('cursor-agent-cli', {
+      listModelsText: 'Available models\n\nauto - Auto (default)\ncomposer-2.5 - Composer 2.5\n',
+    });
+    assert.deepEqual(rows.map((row) => row.id), ['auto', 'composer-2.5']);
+    assert.equal(rows[0].api, 'agent-cli-v1');
+    assert.equal(rows[0].catalogVision, false);
+    assert.deepEqual(rows[0].reasoning.allowed_options, []);
+    const capabilities = await agentCliCapabilityPatchesWithConfig('cursor-agent-cli', {
+      listModelsText: 'Available models\n\nauto - Auto (default)\ncomposer-2.5 - Composer 2.5\n',
+    });
+    assert.deepEqual(Object.keys(capabilities), ['auto', 'composer-2.5']);
+    assert.equal(capabilities['composer-2.5'].tools, true);
+    assert.equal(capabilities['composer-2.5'].vision, false);
   });
 });

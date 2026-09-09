@@ -89,7 +89,12 @@ export async function proxyModels(id) {
     if (status.authStatus === 'signed-out') {
       return { data: [], unreachable: true, error: `${profile.label} is signed out` };
     }
-    return { data: await listAgentCliModelsWithConfig(id) };
+    return {
+      data: await listAgentCliModelsWithConfig(id, {
+        binPath: profile.agentCli?.binPath,
+        cliToken: secrets?.cliToken,
+      }),
+    };
   }
   const modelsPath = normalizeOpenCodeZenRelativePath(profile.baseUrl, paths.modelsPath);
   const url = `${profile.baseUrl}${modelsPath}`;

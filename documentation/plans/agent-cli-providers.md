@@ -53,6 +53,12 @@ CLI protocols evolve independently of Minnow. Fixture coverage demonstrates tran
 - [x] Fall back to well-known install dirs when PATH (Electron) omits them
 - [x] Tests for shim unwrap, Cursor version payload, and well-known discovery
 
+## Follow-up: Cursor stdin and account catalog
+
+- [x] Send the Cursor prompt on stdin (`--print` with no positional) instead of argv, removing the 24 KB Windows command-line cap
+- [x] Trust the isolated scratch workspace in print mode (`--trust`)
+- [x] Enrich the picker from `cursor-agent --list-models` (not inference) with a multi-model static fallback
+
 ## Follow-up: in-app Install
 
 - [x] Replace copy-install commands with **Install** buttons that open Minnow Terminal

@@ -5,8 +5,6 @@ import fs from 'node:fs/promises';
 import { resolveAgentCliBin, applyAgentNodeEnv } from './resolve-bin.js';
 import { MAX_TRANSCRIPT_BYTES } from './prompt.js';
 
-const MAX_CURSOR_PROMPT_BYTES = 24 * 1024;
-
 function safeString(value, label, max = 512_000) {
   if (typeof value !== 'string') return '';
   if (value.includes('\0')) throw new Error(`${label} contains NUL bytes`);
@@ -236,18 +234,27 @@ export async function prepareAgentCliInvocation(input) {
     stdin = systemPrompt ? `${systemPrompt}\n\n${prompt}\n` : `${prompt}\n`;
     input.bridgeConfig = { ...(input.bridgeConfig ?? {}), codexHome };
   } else {
+    // Cursor's --print mode treats --print as a boolean and the prompt as an
+    // optional positional. When that positional is omitted and stdin is not a
+    // TTY, build-prompt.ts reads stdin to EOF. Putting the transcript on argv
+    // hit Windows CreateProcess limits (~32 KiB) and rejected ordinary Minnow
+    // turns at 24 KiB. Keep the prompt off argv on every platform.
     const cursorPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
-    const promptBytes = Buffer.byteLength(cursorPrompt, 'utf8');
-    if (promptBytes > MAX_CURSOR_PROMPT_BYTES) {
-      throw new Error(`Cursor CLI prompt exceeds ${MAX_CURSOR_PROMPT_BYTES} bytes; use a shorter turn or another provider`);
-    }
     const configDir = await prepareCursorFiles(cwd, input.bridgeConfig ?? {});
     input.bridgeConfig = { ...(input.bridgeConfig ?? {}), cursorConfigDir: configDir };
-    args.push('--print', '--output-format', 'stream-json', '--stream-partial-output', '--approve-mcps');
+    args.push(
+      '--print',
+      '--output-format', 'stream-json',
+      '--stream-partial-output',
+      '--approve-mcps',
+      // Headless scratch dirs are not a TTY; without --trust the CLI can block
+      // on the workspace-trust prompt instead of running the turn.
+      '--trust',
+    );
     if (model) args.push('--model', model);
     // Cursor's documented CLI has no effort flag; its isolated config is
     // selected through CURSOR_CONFIG_DIR in the returned environment.
-    args.push(cursorPrompt);
+    stdin = cursorPrompt;
   }
 
   const env = applyAgentNodeEnv(scopedEnv(input.bridgeConfig, kind, input.secrets), bin.command);
@@ -259,5 +266,3 @@ export async function prepareAgentCliInvocation(input) {
     cleanup,
   };
 }
-
-export { MAX_CURSOR_PROMPT_BYTES };

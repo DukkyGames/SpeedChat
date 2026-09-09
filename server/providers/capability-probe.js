@@ -739,7 +739,10 @@ export async function runCapabilityProbe(providerId, options = {}) {
   }
 
   if (runtime.profile.apiKind === 'agent-cli-v1') {
-    return mergeCapabilities(providerId, await agentCliCapabilityPatchesWithConfig(providerId), {
+    return mergeCapabilities(providerId, await agentCliCapabilityPatchesWithConfig(providerId, {
+      binPath: runtime.profile.agentCli?.binPath,
+      cliToken: runtime.secrets?.cliToken,
+    }), {
       probedAt: new Date().toISOString(),
       apiKind: 'agent-cli-v1',
       providerFields: {
@@ -891,7 +894,10 @@ export async function probeProviderCapabilities(id, options = {}) {
   const runtime = await getProviderRuntime(id);
 
   if (runtime.profile.apiKind === 'agent-cli-v1') {
-    return mergeCapabilities(id, await agentCliCapabilityPatchesWithConfig(id), {
+    return mergeCapabilities(id, await agentCliCapabilityPatchesWithConfig(id, {
+      binPath: runtime.profile.agentCli?.binPath,
+      cliToken: runtime.secrets?.cliToken,
+    }), {
       probedAt: new Date().toISOString(),
       apiKind: 'agent-cli-v1',
       providerFields: {

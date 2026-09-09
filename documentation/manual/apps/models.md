@@ -85,7 +85,7 @@ If a CLI is missing, choose **Install**. Minnow opens Terminal and runs the vend
 
 Minnow sends the current conversation, including tool results, on every invocation. CLI conversation history is not reused. The CLI requests Minnow tools, and Minnow applies the usual mode restrictions, approvals, tool cards, user questions, and board reporting. Stopping a generation stops the CLI and its bridge processes.
 
-Claude Code supports image attachments and reasoning effort. Codex supports reasoning effort; Cursor uses its CLI's model defaults. Unsupported sampling options are not forwarded. Cursor's command-line prompt is limited to 24 KB, including the conversation and system instructions; choose another provider for longer conversations. CLI access, available models, and account limits follow the installed CLI and your account.
+Claude Code supports image attachments and reasoning effort. Codex supports reasoning effort; Cursor uses its CLI's model defaults, including the models your account lists. Unsupported sampling options are not forwarded. All three CLIs send the conversation on standard input, with the same 8 MB transcript bound. CLI access, available models, and account limits follow the installed CLI and your account.
 
 ## Routing
 

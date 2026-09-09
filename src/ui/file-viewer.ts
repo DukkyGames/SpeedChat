@@ -1645,6 +1645,11 @@ export async function openFileInViewer(
   relativePath: string,
   options?: OpenFileInViewerOptions,
 ): Promise<void> {
+  if (window.minnow?.viewContext?.appId) {
+    const { routeCodeWindowCommand } = await import('../os/code-window-command');
+    const { getWorkspacePath } = await import('../state/workspace');
+    if (await routeCodeWindowCommand({ kind: 'file', path: relativePath, workspacePath: getFileTreeListingWorkspaceRoot() || getWorkspacePath() })) return;
+  }
   if (isImageFilePath(relativePath)) {
     openWorkspaceImageInViewer(relativePath);
     return;

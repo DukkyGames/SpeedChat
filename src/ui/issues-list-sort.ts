@@ -16,7 +16,7 @@ export type IssuesSortKey =
   | 'status'
   | 'priority'
   | 'labels'
-  | 'updated';
+  | 'created';
 
 export type IssuesSortDirection = 'asc' | 'desc';
 
@@ -25,9 +25,9 @@ export type IssuesListSort = {
   direction: IssuesSortDirection;
 };
 
-/** Default list order matches collectIssues (newest updated first). */
+/** Default list order shows newly created issues first. */
 export const DEFAULT_ISSUES_LIST_SORT: IssuesListSort = {
-  key: 'updated',
+  key: 'created',
   direction: 'desc',
 };
 
@@ -65,9 +65,9 @@ function rankOf(ranks: ReadonlyMap<string, number>, id: string): number {
   return ranks.get(id) ?? Number.MAX_SAFE_INTEGER;
 }
 
-/** First click on a column uses a sensible direction: text/id/status → A→Z / workflow; priority/updated → high/newest first. */
+/** First click on a column uses a sensible direction: text/id/status → A→Z / workflow; priority/created → high/newest first. */
 export function defaultDirectionForSortKey(key: IssuesSortKey): IssuesSortDirection {
-  if (key === 'priority' || key === 'updated') return 'desc';
+  if (key === 'priority' || key === 'created') return 'desc';
   return 'asc';
 }
 
@@ -132,8 +132,8 @@ export function compareIssuesBySortKey(
       );
     case 'labels':
       return compareStrings(labelsSortValue(a), labelsSortValue(b));
-    case 'updated':
-      return a.updatedAt - b.updatedAt;
+    case 'created':
+      return a.createdAt - b.createdAt;
     default:
       return 0;
   }

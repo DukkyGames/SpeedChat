@@ -81,6 +81,7 @@ export function classifyPaste(dataTransfer: DataTransfer | null): PastePlan {
 
 export interface PasteContext {
   issueId?: string;
+  onAttachment?: (attachment: import('../state/issue-attachments-api').StoredAttachment) => void;
   /** Insert markdown at the caret and commit. */
   insertText: (text: string) => void;
 }
@@ -135,16 +136,18 @@ export async function applyPaste(plan: PastePlan, ctx: PasteContext): Promise<bo
           showToast('Attachments need the local server.', 'error');
           return false;
         }
-        store.addIssueAttachment(ctx.issueId, {
+        // Inserting commits the editor before the attachment event can remount it.
+        ctx.insertText(
+          `![${stored.name.replace(/[\[\]]/g, '')}](${api.issueAttachmentUrl(stored)})\n`,
+        );
+        if (ctx.onAttachment) ctx.onAttachment(stored);
+        else store.addIssueAttachment(ctx.issueId, {
           name: stored.name,
           path: stored.path,
           mime: stored.mime,
           bytes: stored.bytes,
         });
         store.scheduleSaveIssues();
-        ctx.insertText(
-          `![${stored.name}](/api/issues/attachments?key=${encodeURIComponent(stored.key)})\n`,
-        );
         return true;
       } catch (err) {
         showToast(err instanceof Error ? err.message : 'Could not attach image', 'error');

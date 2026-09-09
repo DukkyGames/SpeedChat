@@ -280,7 +280,7 @@ function buildBody(): HTMLElement {
     el('span', { class: 'issues-list-head__rollup', text: 'Sub' }),
     el('span', { class: 'issues-list-head__counts', text: 'Links' }),
     sortHead('status', 'Status', 'issues-list-head__status'),
-    sortHead('updated', 'Updated', 'issues-list-head__updated', 'descending'),
+    sortHead('created', 'Created', 'issues-list-head__created', 'descending'),
   ]);
 
   const pane = el('div', { class: 'issues-list-pane' }, [

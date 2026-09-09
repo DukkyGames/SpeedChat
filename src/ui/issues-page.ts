@@ -1,3 +1,5 @@
+import { formatIssueAge } from '../issues/age';
+import { showToast } from './toast';
 import '../styles/issues.css';
 
 import { notifyAskQuestionDisplayContextChanged } from '../chat/ask-question-display';
@@ -173,7 +175,7 @@ const ISSUES_SORT_KEYS = new Set<IssuesSortKey>([
   'status',
   'priority',
   'labels',
-  'updated',
+  'created',
 ]);
 
 /** Human labels for sort aria-label (avoid reading indicator glyphs from the button). */
@@ -184,7 +186,7 @@ const ISSUES_SORT_LABELS: Record<IssuesSortKey, string> = {
   status: 'Status',
   priority: 'Priority',
   labels: 'Labels',
-  updated: 'Updated',
+  created: 'Created',
 };
 
 type IssuesUiFilters = {
@@ -567,17 +569,6 @@ function currentGroupedRows() {
       hideDone: false,
     }),
   });
-}
-
-function formatUpdated(ts: number): string {
-  try {
-    return new Date(ts).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-    });
-  } catch {
-    return '';
-  }
 }
 
 // ── Selection ────────────────────────────────────────────────────────────────
@@ -1339,9 +1330,13 @@ function buildIssueRow(
     onBlur: () => refreshIssueDetailIfOpen(),
   });
 
-  const updated = document.createElement('span');
-  updated.className = 'issues-row__updated';
-  updated.textContent = formatUpdated(issue.updatedAt);
+  const created = document.createElement('time');
+  created.className = 'issues-row__created';
+  created.textContent = formatIssueAge(issue.createdAt);
+  if (Number.isFinite(issue.createdAt)) {
+    created.dateTime = new Date(issue.createdAt).toISOString();
+    created.title = `Created ${new Date(issue.createdAt).toLocaleString()}`;
+  }
 
   // Match the list grid: labels sit after title; status sits with the trailing metadata.
   row.append(
@@ -1356,7 +1351,7 @@ function buildIssueRow(
     rollup,
     counts,
     status,
-    updated,
+    created,
   );
   row.addEventListener('click', (event) => {
     const target = asElement(event.target);
@@ -2060,6 +2055,8 @@ function setNewIssuePanelOpen(open: boolean, form: HTMLElement, backdrop: HTMLEl
 }
 
 let newIssueDescriptionEditor: IssueEditorHandle | null = null;
+/** Invalidates submit operations waiting on an upload after cancel/reopen. */
+let newIssueFormRevision = 0;
 
 const NEW_ISSUE_LABELS_ID = '__new__';
 let newIssueLabels: string[] = [];
@@ -2185,6 +2182,94 @@ function syncNewIssueDescriptionRefs(issueId: string, markdown: string): void {
   });
 }
 
+let newIssueExpandAbort: AbortController | null = null;
+
+function readNewIssueExpandSource() {
+  return {
+    id: '__new__',
+    title: controlValue('issuesNewTitle'),
+    description: getNewIssueDescription(),
+    type: controlValue('issuesNewType') || 'task',
+    priority: controlValue('issuesNewPriority') || 'none',
+    labels: [...newIssueLabels],
+  };
+}
+
+function cancelNewIssueExpand(): void {
+  newIssueExpandAbort?.abort();
+  newIssueExpandAbort = null;
+  const button = document.getElementById('issuesNewExpand');
+  if (button) {
+    button.textContent = 'Expand';
+    button.setAttribute('aria-busy', 'false');
+  }
+}
+
+function ensureNewIssueExpandButton(form: HTMLElement): void {
+  if (form.querySelector('#issuesNewExpand')) return;
+  const actions = form.querySelector('.issues-new-form__actions');
+  if (!actions) return;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.id = 'issuesNewExpand';
+  button.className = 'issues-btn';
+  button.textContent = 'Expand';
+  button.title = 'Suggest title, description, labels, and priority from this draft';
+  button.addEventListener('click', () => void expandNewIssueForm());
+  actions.prepend(button);
+}
+
+async function expandNewIssueForm(): Promise<void> {
+  if (newIssueExpandAbort) {
+    cancelNewIssueExpand();
+    return;
+  }
+  const source = readNewIssueExpandSource();
+  if (!canExpandIssueDraft(source)) {
+    showToast('Add a title or description to expand');
+    return;
+  }
+  const controller = new AbortController();
+  newIssueExpandAbort = controller;
+  const button = document.getElementById('issuesNewExpand');
+  if (button) {
+    button.textContent = 'Cancel expansion';
+    button.setAttribute('aria-busy', 'true');
+  }
+  try {
+    await newIssueDescriptionEditor?.waitForImages();
+    if (controller.signal.aborted) return;
+    Object.assign(source, readNewIssueExpandSource());
+    const { expandUnsavedIssueDraft } = await import('./issues-expand');
+    const draft = await expandUnsavedIssueDraft(source, controller.signal);
+    if (!draft || controller.signal.aborted || !isNewFormOpen()) return;
+    if (JSON.stringify(source) !== JSON.stringify(readNewIssueExpandSource())) {
+      showToast('Draft changed while expanding. Expand again to include your edits.');
+      return;
+    }
+    setControlValue('issuesNewTitle', draft.title);
+    newIssueDescriptionEditor?.setValue(draft.description);
+    setControlValue('issuesNewPriority', draft.priority ?? source.priority);
+    syncNewIssuePropertyFields();
+    newIssueLabels = draft.labels ?? source.labels;
+    newIssueLabelsField?.remove();
+    newIssueLabelsField = createIssuesLabelsField({
+      issueId: NEW_ISSUE_LABELS_ID,
+      labels: newIssueLabels,
+      variant: 'form',
+      onChange: (labels) => { newIssueLabels = labels; },
+    });
+    document.getElementById('issuesNewLabelsHost')?.replaceChildren(newIssueLabelsField);
+    showToast('Draft expanded. Review it before creating the issue.', 'success');
+  } catch (error) {
+    if (!controller.signal.aborted) {
+      showToast(error instanceof Error ? error.message : 'Could not expand the draft', 'error');
+    }
+  } finally {
+    if (newIssueExpandAbort === controller) cancelNewIssueExpand();
+  }
+}
+
 let newIssueFormBindingsDone = false;
 
 /** The new-issue form lives on document.body; bind its controls outside #issuesView. */
@@ -2199,6 +2284,7 @@ function bindNewIssueFormControls(): void {
   ensureNewIssueLabelsField();
   syncNewIssuePropertyFields();
 
+  ensureNewIssueExpandButton(form);
   form.addEventListener('submit', submitNewIssue);
   newIssueFormBindingsDone = true;
 }
@@ -2212,6 +2298,8 @@ function setNewFormOpen(open: boolean): void {
   if (!form) return;
 
   if (!open) {
+    newIssueFormRevision++;
+    cancelNewIssueExpand();
     setNewIssuePanelOpen(false, form, backdrop);
     anchor?.setAttribute('aria-expanded', 'false');
     resetNewIssueDescription();
@@ -2235,8 +2323,12 @@ function setNewFormOpen(open: boolean): void {
   }
 }
 
-function submitNewIssue(event: Event): void {
+async function submitNewIssue(event: Event): Promise<void> {
   event.preventDefault();
+  const editor = newIssueDescriptionEditor;
+  const revision = newIssueFormRevision;
+  await editor?.waitForImages();
+  if (revision !== newIssueFormRevision || !isNewFormOpen() || editor !== newIssueDescriptionEditor) return;
   const title = controlValue('issuesNewTitle').trim();
   if (!title) return;
   const description = getNewIssueDescription();
@@ -2248,6 +2340,7 @@ function submitNewIssue(event: Event): void {
     labels: newIssueLabels,
     workspacePath: getNewIssueWorkspacePath(filters.scope),
   });
+  editor?.attachImagesToIssue(issue.id);
   syncNewIssueDescriptionRefs(issue.id, description);
   setControlValue('issuesNewTitle', '');
   resetNewIssueDescription();

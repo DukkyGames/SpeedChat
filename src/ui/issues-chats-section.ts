@@ -15,6 +15,7 @@ import type { Chat, IssueCard } from '../types';
 import { createIcon } from './icon';
 import { openIssuesContextMenu, type IssuesContextMenuItem } from './issues-context-menu';
 import { canRunIssueWorkflow, runIssueForegroundChat } from '../chat/issues/pipeline';
+import { getAppWindowId } from '../os/app-window';
 
 /** Keep the attach picker a menu, not a search dialog. */
 const ATTACH_MENU_CAP = 30;
@@ -97,7 +98,10 @@ async function startNewIssueChat(issueId: string): Promise<void> {
   refreshOpenPeek();
 }
 
-async function openPeekChatRow(row: IssuePeekChatRow): Promise<void> {
+async function openPeekChatRow(issueId: string, row: IssuePeekChatRow): Promise<void> {
+  const chat = findChatById(row.chatId);
+  const { routeCodeWindowCommand } = await import('../os/code-window-command');
+  if (await routeCodeWindowCommand({ kind: 'chat', chatId: row.chatId, boardGroupId: row.boardGroupId, workspacePath: chat?.workspacePath || findIssueById(issueId)?.workspacePath || '' })) return;
   if (!row.available) return;
   if (row.kind === 'board' && row.boardGroupId) {
     try {
@@ -119,7 +123,7 @@ function buildChatRow(issueId: string, row: IssuePeekChatRow): HTMLLIElement {
   const openBtn = document.createElement('button');
   openBtn.type = 'button';
   openBtn.className = 'issues-detail__chat-open';
-  openBtn.disabled = !row.available;
+  openBtn.disabled = !row.available && !getAppWindowId();
   openBtn.title = row.available
     ? row.kind === 'board'
       ? `Open board ${row.title}`
@@ -154,7 +158,7 @@ function buildChatRow(issueId: string, row: IssuePeekChatRow): HTMLLIElement {
   }
 
   openBtn.addEventListener('click', () => {
-    void openPeekChatRow(row);
+    void openPeekChatRow(issueId, row).catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), 'error'));
   });
 
   li.appendChild(openBtn);

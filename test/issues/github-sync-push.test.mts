@@ -11,8 +11,9 @@ import {
   setIssuesGithubMode,
   syncIssueWithGithub,
 } from '../../src/state/issues-github.ts';
-import { setIssuesStateForTests } from '../../src/state/issues-store.ts';
+import { findIssueById, updateIssue, setIssuesStateForTests } from '../../src/state/issues-store.ts';
 import { setLocalServerAvailableForTests } from '../../src/tools/config.ts';
+import { issueNeedsGithubPush } from '../../src/issues/github-sync-plan.ts';
 import type { IssueCard, IssueGithubLink } from '../../src/types.ts';
 
 const SYNCED_AT = 1_000;
@@ -128,6 +129,20 @@ describe('GitHub label push', () => {
     } else {
       delete (globalThis as { localStorage?: Storage }).localStorage;
     }
+  });
+
+  test('edits made during a push remain pending and use the issue workspace', async () => {
+    const normalFetch = globalThis.fetch;
+    globalThis.fetch = async (input, init) => {
+      const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+      if (body.op === 'issueEdit') updateIssue('MIN-1', { title: 'Typed while syncing' });
+      return normalFetch(input, init);
+    };
+    const outcome = await syncIssueWithGithub('MIN-1');
+    assert.equal(outcome.ok, true);
+    assert.equal(issueNeedsGithubPush(findIssueById('MIN-1')!), true);
+    assert.equal(findIssueById('MIN-1')?.title, 'Typed while syncing');
+    assert.ok(forgeCalls.every((call) => call.cwd === '/w'));
   });
 
   test('push sends addLabels for names GitHub does not have yet', async () => {

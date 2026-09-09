@@ -13,6 +13,7 @@ import {
   updateIssue,
 } from '../../state/issues-store.ts';
 import { findChatById } from '../../state/sessions.ts';
+import { routeCodeWindowCommand } from '../../os/code-window-command.ts';
 import type { Chat, IssueCard } from '../../types.ts';
 import { isTriageStatus } from '../../issues/taxonomy.ts';
 import { getIssuesTaxonomySync } from '../../state/issues-taxonomy-store.ts';
@@ -137,12 +138,14 @@ export async function openIssueActivity(issue: IssueCard): Promise<boolean> {
   const { switchChat } = await import('../../ui/sidebar.ts');
 
   if (target.kind === 'board_chat') {
+    if (await routeCodeWindowCommand({ kind: 'chat', chatId: target.chatId, workspacePath: issue.workspacePath })) return true;
     switchChat(target.chatId);
     return true;
   }
 
   const chatId = resolveIssueSubAgentChatId(issue, target.runId);
   if (!chatId) return false;
+  if (await routeCodeWindowCommand({ kind: 'activity', chatId, runId: target.runId, workspacePath: issue.workspacePath })) return true;
 
   switchChat(chatId);
   const { openSubAgentDrawer } = await import('../../ui/sub-agent-drawer.ts');
@@ -173,11 +176,15 @@ function ensureIssueWorkflowChat(issue: IssueCard, namePrefix: string): Chat | n
 
 /** Foreground Code (no seed) then apply seeded launch; returns new chat id when created. */
 async function launchCodeSeededChat(options: {
+  issueId?: string;
   modeId: IssueForegroundChatMode;
   seed: string;
   workspacePath?: string;
   codeRefs?: ReturnType<typeof issueCodeRefsToLaunch>;
 }): Promise<{ chatId?: string }> {
+  if (await routeCodeWindowCommand({ kind: 'seed', ...options, workspacePath: options.workspacePath || '' })) return {};
+  const { ensureCodeWorkspaceModules } = await import('../../boot/code-workspace-modules.ts');
+  await ensureCodeWorkspaceModules();
   const { launchApp } = await import('../../os/router.ts');
   const { applyCodeLaunchOptions } = await import('../../os/code-launch.ts');
 
@@ -273,6 +280,7 @@ export async function runIssuePlanChat(
 
   try {
     const { chatId } = await launchCodeSeededChat({
+      issueId,
       modeId: 'plan',
       seed,
       workspacePath: issue.workspacePath,
@@ -384,6 +392,7 @@ export async function runIssueForegroundChat(
 
   try {
     const { chatId } = await launchCodeSeededChat({
+      issueId,
       modeId,
       seed,
       workspacePath: issue.workspacePath,
@@ -425,6 +434,7 @@ export async function runIssueSendToBoard(
   const planPath = issue.planPath!.trim();
 
   try {
+    if (await routeCodeWindowCommand({ kind: 'board', issueId, workspacePath: issue.workspacePath })) return { ok: true };
     const { launchApp } = await import('../../os/router.ts');
     launchApp('code', { codeSection: 'chat', workspacePath: issue.workspacePath });
     await new Promise((r) => setTimeout(r, 0));
@@ -449,6 +459,7 @@ export async function openIssuePlanInEditor(
 ): Promise<void> {
   const path = planPath.trim();
   if (!path) return;
+  if (await routeCodeWindowCommand({ kind: 'file', path, workspacePath: workspacePath || '' })) return;
 
   const targetWs = workspacePath?.trim() || '';
   const { isCurrentWindowWorkspace } = await import('../../state/workspace.ts');

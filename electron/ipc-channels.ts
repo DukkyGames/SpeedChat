@@ -70,6 +70,9 @@ export const WINDOW_VISIBILITY_CHANGED = 'minnow:window:visibility-changed';
 export const WINDOW_NEW = 'minnow:window:new';
 /** Open a folder in a window — or focus the one already on it. */
 export const WINDOW_OPEN_WORKSPACE = 'minnow:window:open-workspace';
+export const WINDOW_CODE_COMMAND = 'minnow:window:code-command';
+export const WINDOW_CODE_READY = 'minnow:window:code-ready';
+export const WINDOW_CODE_LINK = 'minnow:window:code-link';
 /** Folders currently open in some window, so recents can mark and focus them. */
 export const WINDOW_LIST_WORKSPACES = 'minnow:window:list-workspaces';
 /** The same list with window ids and background state, for close/focus actions. */

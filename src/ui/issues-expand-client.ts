@@ -14,6 +14,7 @@ import {
   parseExpandedIssue,
   type ExpandedIssueDraft,
   type IssueExpandSource,
+  type IssueExpandCatalog,
 } from '../chat/issues/expand-issue';
 import { loadPromptExpanderConfig } from '../config/prompt-expander-meta';
 import { encodeModelSelectKey } from '../lib/model-select-key';
@@ -44,6 +45,7 @@ export {
 
 export interface ExpandIssueRequest {
   issue: IssueExpandSource;
+  catalog?: IssueExpandCatalog;
   signal: AbortSignal;
   onPartial?: (draft: ExpandedIssueDraft) => void;
 }
@@ -140,7 +142,7 @@ export async function fetchExpandedIssue(
 
   const body: Record<string, unknown> = {
     model: binding.modelId,
-    messages: buildExpandIssueMessages(input.issue),
+    messages: buildExpandIssueMessages(input.issue, input.catalog),
     temperature: EXPAND_ISSUE_TEMPERATURE,
     max_tokens: EXPAND_ISSUE_MAX_TOKENS,
     stream: true,

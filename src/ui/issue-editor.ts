@@ -11,7 +11,9 @@ import {
 import { htmlToInline, inlineToHtml } from '../issues/markdown-inline';
 import { iconHtml } from './icon';
 import { openContextMenu, type MenuItem } from './context-menu';
-import { transformPaste } from './issue-editor-paste';
+import { applyPaste, classifyPaste } from './issue-editor-paste';
+import { addIssueAttachment, findIssueById, updateIssue, scheduleSaveIssues } from '../state/issues-store';
+import type { StoredAttachment } from '../state/issue-attachments-api';
 
 export interface IssueEditorOptions {
   /** Initial markdown. */
@@ -37,6 +39,8 @@ export interface IssueEditorHandle {
   /** Replace the document (external update, e.g. an agent wrote to it). */
   setValue: (markdown: string) => void;
   focus: () => void;
+  waitForImages: () => Promise<void>;
+  attachImagesToIssue: (issueId: string) => void;
   destroy: () => void;
 }
 
@@ -867,6 +871,10 @@ export function createIssueEditor(
 ): IssueEditorHandle {
   const root = document.createElement('div');
   root.className = 'mn-editor';
+  const draftId = options.issueId ?? `draft-${crypto.randomUUID()}`;
+  const draftAttachments: StoredAttachment[] = [];
+  const pendingImages = new Set<Promise<unknown>>();
+  let documentRevision = 0;
 
   const body = document.createElement('div');
   body.className = 'mn-editor__body';
@@ -926,15 +934,76 @@ export function createIssueEditor(
     options.onBlur?.();
   };
 
-  const onPaste = (event: ClipboardEvent): void => {
-    transformPaste(event, {
-      issueId: options.issueId,
-      insertText: (text) => {
-        document.execCommand('insertText', false, text);
-        markDirtyAtCaret(state);
+  const insertionContext = () => {
+    const revision = documentRevision;
+    const selection = window.getSelection();
+    const range = selection?.rangeCount && body.contains(selection.anchorNode)
+      ? selection.getRangeAt(0).cloneRange() : null;
+    return {
+      issueId: draftId,
+      onAttachment: options.issueId ? undefined : (attachment: StoredAttachment) => {
+        if (revision === documentRevision) draftAttachments.push(attachment);
+      },
+      insertText: (text: string) => {
+        if (revision !== documentRevision) return;
+        // Uploads can outlive a peek remount or a switch to another issue.
+        if (!body.isConnected) {
+          const issue = options.issueId && findIssueById(options.issueId);
+          if (issue) {
+            updateIssue(issue.id, { description: `${issue.description}\n\n${text}`.trim() });
+            scheduleSaveIssues();
+          }
+          return;
+        }
+        const target = range && body.contains(range.startContainer) ? range : document.createRange();
+        if (target !== range) {
+          target.selectNodeContents(body.lastElementChild ?? body);
+          target.collapse(false);
+        }
+        target.deleteContents();
+        const node = document.createTextNode(text);
+        target.insertNode(node);
+        target.setStartAfter(node);
+        target.collapse(true);
+        for (const block of state.blocks) state.dirty.add(block.id);
         commit(state);
       },
-    });
+    };
+  };
+
+  const onPaste = (event: ClipboardEvent): void => {
+    const plan = classifyPaste(event.clipboardData);
+    if (plan.kind === 'passthrough') return;
+    event.preventDefault();
+    const work = applyPaste(plan, insertionContext());
+    pendingImages.add(work);
+    void work.finally(() => pendingImages.delete(work));
+  };
+  const onDragOver = (event: DragEvent): void => {
+    if (!Array.from(event.dataTransfer?.types ?? []).includes('Files')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  };
+  const onDrop = (event: DragEvent): void => {
+    const images = Array.from(event.dataTransfer?.files ?? []).filter((file) => file.type.startsWith('image/'));
+    if (!images.length) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const pointRange = (document as Document & {
+      caretRangeFromPoint?: (x: number, y: number) => Range | null;
+    }).caretRangeFromPoint?.(event.clientX, event.clientY);
+    if (pointRange && body.contains(pointRange.startContainer)) {
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(pointRange);
+    }
+    const context = insertionContext();
+    const work = (async () => {
+      for (const file of images) await applyPaste({ kind: 'image', file }, context);
+    })();
+    pendingImages.add(work);
+    void work.finally(() => pendingImages.delete(work));
   };
 
   const onClick = (event: MouseEvent): void => {
@@ -951,6 +1020,8 @@ export function createIssueEditor(
   body.addEventListener('keydown', onKeyDown);
   body.addEventListener('blur', onBlur, true);
   body.addEventListener('paste', onPaste);
+  body.addEventListener('dragover', onDragOver);
+  body.addEventListener('drop', onDrop);
   body.addEventListener('click', onClick);
 
   render(state);
@@ -960,11 +1031,19 @@ export function createIssueEditor(
     getValue: () => currentMarkdown(state),
     flush: () => (state.body.isConnected ? flush(state) : serializeMarkdownBlocks(state.blocks)),
     setValue: (markdown: string) => {
+      documentRevision++;
+      if (!markdown) draftAttachments.length = 0;
       setBlocks(state, parseMarkdownBlocks(markdown));
       state.dirty.clear();
       render(state);
     },
     focus: () => body.focus(),
+    waitForImages: async () => { await Promise.all(pendingImages); },
+    attachImagesToIssue: (issueId: string) => {
+      for (const attachment of draftAttachments) addIssueAttachment(issueId, attachment);
+      draftAttachments.length = 0;
+      scheduleSaveIssues();
+    },
     destroy: () => {
       // Flush while the nodes still exist so peek remount cannot drop the body.
       if (state.body.isConnected) flush(state);
@@ -972,6 +1051,8 @@ export function createIssueEditor(
       body.removeEventListener('keydown', onKeyDown);
       body.removeEventListener('blur', onBlur, true);
       body.removeEventListener('paste', onPaste);
+      body.removeEventListener('dragover', onDragOver);
+      body.removeEventListener('drop', onDrop);
       body.removeEventListener('click', onClick);
       root.remove();
     },

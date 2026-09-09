@@ -16,6 +16,7 @@ import {
   setIssuesGithubAuto,
   setIssuesGithubMode,
   syncAllIssuesWithGithub,
+  syncIssueWithGithub,
 } from '../../src/state/issues-github.ts';
 import {
   resetGithubAutoSyncForTests,
@@ -23,8 +24,9 @@ import {
   setGithubAutoSyncTimingForTests,
   startGithubAutoSyncLoop,
 } from '../../src/state/issues-github-auto.ts';
-import { addIssue, setIssuesStateForTests, updateIssue } from '../../src/state/issues-store.ts';
+import { addIssue, findIssueById, setIssuesStateForTests, updateIssue } from '../../src/state/issues-store.ts';
 import { setLocalServerAvailableForTests } from '../../src/tools/config.ts';
+import { issueNeedsGithubPush } from '../../src/issues/github-sync-plan.ts';
 import type { IssueCard, IssueGithubLink } from '../../src/types.ts';
 
 const MODE_KEY = 'minnow.issues.github.mode';
@@ -280,7 +282,35 @@ describe('GitHub auto-sync', () => {
     assert.equal(ops.filter((op) => op === 'issueView').length, 2);
   });
 
-  test('conflict skips the auto write', async () => {
+  test('equal content repairs stale watermarks and metadata stays synced', async () => {
+    setIssuesGithubMode('mirror');
+    setIssuesStateForTests({ version: 2, nextId: 2, issues: [card({ github: githubLink(), updatedAt: 2000 })], workspaces: {} });
+    const result = await syncIssueWithGithub('MIN-1');
+    assert.equal(result.ok, true);
+    assert.equal(result.action, 'noop');
+    assert.equal(issueNeedsGithubPush(findIssueById('MIN-1')!), false);
+    updateIssue('MIN-1', { priority: 'high' });
+    assert.equal(issueNeedsGithubPush(findIssueById('MIN-1')!), false);
+    updateIssue('MIN-1', { title: 'A new title' });
+    assert.equal(issueNeedsGithubPush(findIssueById('MIN-1')!), true);
+  });
+
+  test('off does not read a linked remote', async () => {
+    setIssuesStateForTests({ version: 2, nextId: 2, issues: [card({ github: githubLink() })], workspaces: {} });
+    await syncIssueWithGithub('MIN-1');
+    assert.deepEqual(ops, []);
+  });
+
+  test('remote read failures are errors, not successful no-ops', async () => {
+    setIssuesGithubMode('mirror');
+    setIssuesStateForTests({ version: 2, nextId: 2, issues: [card({ github: githubLink() })], workspaces: {} });
+    globalThis.fetch = async () => gitJsonResponse({ ok: false, error: 'gh auth required' });
+    const result = await syncIssueWithGithub('MIN-1');
+    assert.equal(result.ok, false);
+    assert.match(result.error ?? '', /auth/);
+  });
+
+  test('equal-time conflict automatically takes GitHub', async () => {
     setIssuesGithubMode('mirror');
     setIssuesGithubAuto(true);
     setIssuesStateForTests({
@@ -318,6 +348,7 @@ describe('GitHub auto-sync', () => {
     await runGithubAutoSyncLinkedPass();
     assert.equal(ops.includes('issueEdit'), false);
     assert.equal(ops.includes('issueCreate'), false);
+    assert.equal(findIssueById('MIN-1')?.title, 'Theirs');
   });
 });
 

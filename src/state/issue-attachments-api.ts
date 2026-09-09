@@ -73,13 +73,14 @@ export async function uploadIssueAttachment(
  * a separate field, so an attachment record written by an agent (which knows
  * the path, not the key) still renders.
  */
-export function issueAttachmentUrl(attachment: IssueAttachment): string {
+export function issueAttachmentUrl(attachment: Pick<IssueAttachment, 'path'>): string {
   const key = attachmentKey(attachment);
-  return `/api/issues/attachments?key=${encodeURIComponent(key)}`;
+  // Parentheses are legal in filenames but delimit Markdown image destinations.
+  return `/api/issues/attachments?key=${encodeURIComponent(key).replace(/\(/g, '%28').replace(/\)/g, '%29')}`;
 }
 
 /** `<issueId>/<name>` for an attachment record. */
-export function attachmentKey(attachment: IssueAttachment): string {
+export function attachmentKey(attachment: Pick<IssueAttachment, 'path'>): string {
   const parts = attachment.path.replace(/\\/g, '/').split('/').filter(Boolean);
   return parts.slice(-2).join('/');
 }

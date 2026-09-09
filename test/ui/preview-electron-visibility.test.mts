@@ -47,6 +47,20 @@ describe('preview-electron-visibility', () => {
     elements.get('appBody')!.classList.delete('hidden');
   }
 
+  test('returning to Code restores the guest while cached app pages remain open', async () => {
+    enableCodeForeground();
+    setFilePanelState({ ...DEFAULT_FILE_PANEL_STATE, rightPaneMode: 'preview' });
+    elements.get('previewPane')!.classList.delete('hidden');
+    elements.set('issuesView', { classList: new Set(['is-open', 'mn-os-app-layer', 'is-active']), dataset: { osApp: 'issues' } });
+    assert.equal(shouldShowElectronPreviewHost(), false);
+    await syncElectronPreviewHostLayout();
+    elements.get('issuesView')!.classList.delete('is-active');
+    assert.equal(isFullscreenOverlayObscuringWorkspace(), false);
+    await syncElectronPreviewHostLayout();
+    assert.equal(showCalls, 1);
+    assert.equal(hideCalls, 1);
+  });
+
   beforeEach(() => {
     elements.clear();
     docElDataset.osApp = '';

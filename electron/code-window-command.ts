@@ -1,0 +1,15 @@
+/** Commands delivered only to the shell window owning a workspace. */
+export interface CodeWindowCommand {
+  /** Assigned by main so workflow links return to the originating issue store. */
+  requestId?: string;
+  kind: 'seed' | 'file' | 'chat' | 'board' | 'activity';
+  workspacePath: string;
+  issueId?: string;
+  modeId?: string;
+  seed?: string;
+  path?: string;
+  chatId?: string;
+  boardGroupId?: string;
+  runId?: string;
+  codeRefs?: Array<{ path: string; startLine?: number; endLine?: number; text?: string }>;
+}

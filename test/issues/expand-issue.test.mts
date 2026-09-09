@@ -149,3 +149,22 @@ describe('mergeExpandedIssue', () => {
     });
   });
 });
+
+
+test('expander reads metadata, validates custom priorities, and preserves omitted values', () => {
+  const original = { title: 'Bug', description: 'Details', labels: ['ui'], priority: 'none' };
+  const catalog = { priorities: [{ id: 'critical', label: 'Critical' }], labels: ['ui'] };
+  const draft = parseExpandedIssue('<title>Fix bug</title><description>Details</description><labels><label>ui</label><label>crash</label></labels><priority>critical</priority>')!;
+  assert.deepEqual(mergeExpandedIssue(original, draft, catalog), {
+    title: 'Fix bug', description: 'Details', labels: ['ui', 'crash'], priority: 'critical',
+  });
+  assert.deepEqual(mergeExpandedIssue(original, { title: 'Fix', description: '', priority: 'invented' }, catalog), {
+    ...original, title: 'Fix',
+  });
+  const json = parseExpandedIssue('{"title":"Fix","description":"Details","labels":["ui",2],"priority":"critical"}');
+  assert.deepEqual(json?.labels, ['ui']);
+  assert.equal(json?.priority, 'critical');
+  const prompt = buildExpandIssueMessages({ id: 'ISS-1', type: 'bug', ...original }, catalog);
+  assert.match(String(prompt[1]?.content), /critical/);
+  assert.match(String(prompt[1]?.content), /Current labels/);
+});

@@ -19,11 +19,18 @@ const CLOSE_THINK_RE = /<\/(?:redacted_)?think(?:ing)?>/gi;
 export type IssueExpandSource = Pick<
   IssueCard,
   'id' | 'type' | 'title' | 'description' | 'notes'
->;
+> & Partial<Pick<IssueCard, 'labels' | 'priority'>>;
 
 export interface ExpandedIssueDraft {
   title: string;
   description: string;
+  labels?: string[];
+  priority?: string;
+}
+
+export interface IssueExpandCatalog {
+  priorities: readonly { id: string; label: string }[];
+  labels: readonly string[];
 }
 
 function cut(text: string, limit: number): string {
@@ -59,7 +66,10 @@ function expandSystemPrompt(hasDetails: boolean): string {
     '- Stay proportionate: a one-line stub becomes a short structured description, not an essay.',
     '- Bugs: motivation, what happens, and repro only when the draft already has those facts.',
     '- Tasks: motivation and acceptance criteria implied by the draft, not a new spec.',
-    '- Do not change type, status, labels, or priority.',
+    '- Do not change type or status. Suggest relevant labels and a priority from the supplied catalog.',
+    '- Prefer existing label names. Keep existing labels unless clearly irrelevant; add only labels supported by the content.',
+    '- Choose a priority only when the content supports it; otherwise preserve the current priority.',
+    '- Preserve inline image markdown and image URLs exactly so visual context is retained.',
     '',
     mode,
     '',
@@ -68,12 +78,14 @@ function expandSystemPrompt(hasDetails: boolean): string {
     '<description>',
     'markdown body',
     '</description>',
+    '<labels><label>label name</label></labels>',
+    '<priority>priority id from the catalog</priority>',
   ].join('\n');
 }
 
 // ── Prompt ───────────────────────────────────────────────────────────────────
 
-export function buildExpandIssueMessages(issue: IssueExpandSource): ApiMessage[] {
+export function buildExpandIssueMessages(issue: IssueExpandSource, catalog?: IssueExpandCatalog): ApiMessage[] {
   const hasDetails = issueHasDetails(issue);
   const user = [
     hasDetails
@@ -83,6 +95,10 @@ export function buildExpandIssueMessages(issue: IssueExpandSource): ApiMessage[]
     '',
     `Issue id: ${issue.id}`,
     `Type: ${issue.type}`,
+    fieldBlock('Current labels', JSON.stringify(issue.labels ?? []), `issue:${issue.id}:labels`),
+    fieldBlock('Current priority', issue.priority ?? 'none', `issue:${issue.id}:priority`),
+    fieldBlock('Available priorities', JSON.stringify(catalog?.priorities ?? []), 'issues:priorities'),
+    fieldBlock('Existing label names', JSON.stringify(catalog?.labels ?? []), 'issues:labels'),
     fieldBlock('Current title', issue.title ?? '', `issue:${issue.id}:title`),
     fieldBlock('Current description', issue.description ?? '', `issue:${issue.id}:description`),
     fieldBlock('Notes', issue.notes ?? '', `issue:${issue.id}:notes`),
@@ -162,18 +178,28 @@ function parseXmlDraft(text: string, partial: boolean): ExpandedIssueDraft | nul
   }
 
   if (!title && !description) return null;
-  return { title, description };
+  const labelsXml = /<labels>\s*([\s\S]*?)\s*<\/labels>/i.exec(text);
+  const priorityXml = /<priority>\s*([^<]*?)\s*<\/priority>/i.exec(text);
+  return {
+    title, description,
+    ...(labelsXml ? { labels: [...(labelsXml[1] ?? '').matchAll(/<label>([\s\S]*?)<\/label>/gi)].map((m) => decodeXmlText(m[1] ?? '')).filter(Boolean) } : {}),
+    ...(priorityXml?.[1]?.trim() ? { priority: decodeXmlText(priorityXml[1]) } : {}),
+  };
 }
 
 function parseJsonDraft(text: string): ExpandedIssueDraft | null {
   const trimmed = text.trim();
   if (!trimmed.startsWith('{')) return null;
   try {
-    const parsed = JSON.parse(trimmed) as { title?: unknown; description?: unknown };
+    const parsed = JSON.parse(trimmed) as { title?: unknown; description?: unknown; labels?: unknown; priority?: unknown };
     const title = typeof parsed.title === 'string' ? parsed.title.trim() : '';
     const description = typeof parsed.description === 'string' ? parsed.description.trim() : '';
     if (!title && !description) return null;
-    return { title, description };
+    return {
+      title, description,
+      ...(Array.isArray(parsed.labels) ? { labels: parsed.labels.filter((v): v is string => typeof v === 'string').map((v) => v.trim()).filter(Boolean) } : {}),
+      ...(typeof parsed.priority === 'string' && parsed.priority.trim() ? { priority: parsed.priority.trim() } : {}),
+    };
   } catch {
     return null;
   }
@@ -242,10 +268,23 @@ export function parseExpandedIssue(
 // ── Merge ────────────────────────────────────────────────────────────────────
 
 export function mergeExpandedIssue(
-  original: { title: string; description: string },
+  original: ExpandedIssueDraft,
   draft: ExpandedIssueDraft,
-): { title: string; description: string } {
+  catalog?: IssueExpandCatalog,
+): ExpandedIssueDraft {
   const title = draft.title.trim() || original.title;
-  const description = draft.description.trim() || original.description;
-  return { title, description };
+  let description = draft.description.trim() || original.description;
+  // A model can omit visual context despite the prompt. Keep the user's images.
+  const missingImages = [...original.description.matchAll(/!\[[^\]]*\]\([^\s)]+(?:\s+"[^"]*")?\)/g)]
+    .map((match) => match[0])
+    .filter((image, index, images) => !description.includes(image) && images.indexOf(image) === index);
+  if (missingImages.length) description = `${description}\n\n${missingImages.join('\n\n')}`.trim();
+  const labels = draft.labels ?? original.labels;
+  const priority = draft.priority && catalog?.priorities.some((item) => item.id === draft.priority)
+    ? draft.priority : original.priority;
+  return {
+    title, description,
+    ...(labels ? { labels: [...new Set(labels.map((label) => label.trim()).filter(Boolean))] } : {}),
+    ...(priority ? { priority } : {}),
+  };
 }

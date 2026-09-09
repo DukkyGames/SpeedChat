@@ -108,6 +108,7 @@ export async function restoreCodeSessionOnForeground(): Promise<void> {
  */
 export async function applyCodeLaunchOptions(
   options: LaunchOptions,
+  onChatCreated?: (chatId: string) => void,
 ): Promise<{ chatId?: string }> {
   const seed = options.seed?.trim();
   const shouldSend = options.autoRun === true && Boolean(seed);
@@ -143,6 +144,7 @@ export async function applyCodeLaunchOptions(
   const modeId = normalizeModeId(options.modeId ?? DEFAULT_MODE_ID);
   const created = createChatWithMode({ modeId });
   if (!created.ok || !seed) return {};
+  if (created.chatId) onChatCreated?.(created.chatId);
 
   const { addCodeReferenceToComposer } = await import('../attachments/code-ref');
   for (const ref of options.codeRefs ?? []) {

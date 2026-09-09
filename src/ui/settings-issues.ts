@@ -818,7 +818,7 @@ function renderIssuesGithubPanel(mount: HTMLElement, onChange: () => void): void
     checked: getIssuesGithubAuto(),
     disabled: modeIsOff,
     description:
-      'Pushes title, description, labels, and closed-state as they change, creates a GitHub issue on the first of those edits to an unlinked card, and checks GitHub every 5 minutes (including in the background). Conflicts still wait for you.',
+      'Pushes title, description, labels, and closed-state as they change, creates a GitHub issue on the first of those edits to an unlinked card, and checks GitHub every 5 minutes (including in the background). When both sides change, the most recent edit wins automatically.',
     onChange: (checked) => {
       setIssuesGithubAuto(checked);
     },

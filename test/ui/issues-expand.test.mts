@@ -39,6 +39,7 @@ function setupDom(): void {
   globalThis.HTMLElement = window.HTMLElement;
   globalThis.HTMLButtonElement = window.HTMLButtonElement;
   globalThis.HTMLInputElement = window.HTMLInputElement;
+  globalThis.HTMLSelectElement = window.HTMLSelectElement;
   globalThis.HTMLTextAreaElement = window.HTMLTextAreaElement;
   globalThis.HTMLFormElement = window.HTMLFormElement;
   globalThis.HTMLParagraphElement = window.HTMLParagraphElement;
@@ -215,4 +216,60 @@ describe('issues peek expand control', () => {
     assert.equal(btn.dataset.issueExpand, 'MIN-8');
     assert.ok(btn.querySelector('.composer-expand-btn__icon'));
   });
+});
+
+
+test('metadata remains a proposal until Apply, with editable labels and priority', async () => {
+  seedIssue({ labels: ['ui'], priority: 'low' });
+  setExpandIssueFetcherForTests(async () => ({ draft: {
+    title: 'Fix login', description: 'Crash on login', labels: ['ui', 'crash'], priority: 'high',
+  } }));
+  await startIssueExpandFromUi('MIN-8');
+  assert.deepEqual(findIssueById('MIN-8')?.labels, ['ui']);
+  assert.equal(findIssueById('MIN-8')?.priority, 'low');
+  const labels = document.getElementById('issuesExpandLabels') as HTMLTextAreaElement;
+  const priority = document.getElementById('issuesExpandPriority') as HTMLSelectElement;
+  assert.equal(labels.value, 'ui\ncrash');
+  assert.equal(priority.value, 'high');
+  labels.value = 'login';
+  priority.value = 'urgent';
+  document.getElementById('issuesExpandApply')?.click();
+  assert.deepEqual(findIssueById('MIN-8')?.labels, ['login']);
+  assert.equal(findIssueById('MIN-8')?.priority, 'urgent');
+});
+
+test('unsaved expansion uses entered fields without creating or modifying an issue', async () => {
+  seedIssue();
+  const { expandUnsavedIssueDraft } = await import('../../src/ui/issues-expand.ts');
+  setExpandIssueFetcherForTests(async (request) => {
+    assert.equal(request.issue.title, 'Draft bug');
+    assert.equal(request.issue.description, 'Entered detail');
+    assert.deepEqual(request.issue.labels, ['ui']);
+    return { draft: { title: 'Fix draft bug', description: 'Expanded detail', labels: ['ui', 'crash'], priority: 'high' } };
+  });
+  const draft = await expandUnsavedIssueDraft({
+    id: '__new__', title: 'Draft bug', description: 'Entered detail', type: 'bug', labels: ['ui'], priority: 'none',
+  }, new AbortController().signal);
+  assert.equal(draft?.priority, 'high');
+  assert.equal(findIssueById('__new__'), undefined);
+  assert.equal(findIssueById('MIN-8')?.title, 'login broken');
+});
+
+
+test('late cancellation errors cannot close a replacement expansion', async () => {
+  seedIssue();
+  const expand = await import('../../src/ui/issues-expand.ts');
+  let rejectOld!: (error: Error) => void;
+  let markStarted!: () => void;
+  const started = new Promise<void>((resolve) => { markStarted = resolve; });
+  setExpandIssueFetcherForTests(() => new Promise((_resolve, reject) => { rejectOld = reject; markStarted(); }));
+  const old = expand.startIssueExpandFromUi('MIN-8');
+  await started;
+  expand.closeIssueExpandOverlay();
+  setExpandIssueFetcherForTests(async () => ({ draft: { title: 'Current result', description: 'Keep this' } }));
+  await startIssueExpandFromUi('MIN-8');
+  rejectOld(new Error('Request aborted'));
+  await old;
+  assert.equal(isIssueExpandOverlayOpen(), true);
+  assert.equal((document.getElementById('issuesExpandTitle') as HTMLInputElement).value, 'Current result');
 });

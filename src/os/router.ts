@@ -425,6 +425,7 @@ export function launchApp(appId: AppId, options?: LaunchOptions): void {
 export function initOsRouter(): void {
   if (initialized) return;
   initialized = true;
+  void import('./code-window-command').then((m) => m.initCodeWindowCommands());
   window.addEventListener('hashchange', onHashChange);
   applyRouteFromHash();
 }

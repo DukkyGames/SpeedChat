@@ -1,16 +1,9 @@
 /**
  * What syncing one issue with GitHub should do — decided before anything runs.
  *
- * This is the whole "mirror mode never silently loses an edit" guarantee, and
- * it is deliberately a pure function so it can be tested exhaustively rather
- * than hoped about. The rule is one sentence: an edit on both sides since the
- * last watermark is a **conflict the user resolves**, never a race the last
- * writer wins.
- *
- * The two modes:
- *
- * - **off** — nothing is ever contacted.
- * - **mirror** — both directions, with conflicts surfaced.
+ * Mirror sync uses content and per-side watermarks. When both sides changed,
+ * the most recent edit wins; equal timestamps prefer GitHub deterministically.
+ * Off never contacts GitHub.
  *
  * Stored `'link'` (retired Link + push) normalizes to `'off'` so those
  * workspaces stop syncing until the user opts into Two-way mirror.
@@ -165,17 +158,23 @@ export function planIssueSync(input: PlanSyncInput): SyncAction {
   const remoteChanged = hasRemoteChanged(remote, link);
 
   if (localChanged && remoteChanged) {
-    return { kind: 'conflict', local, remote: remoteSide };
+    return latestChange();
   }
   if (localChanged) return { kind: 'push', fields: local };
   if (remoteChanged) return { kind: 'pull', fields: remoteSide };
 
-  return { kind: 'conflict', local, remote: remoteSide };
+  return latestChange();
+
+  function latestChange(): SyncAction {
+    return (issue.github?.localChangedAt ?? issue.updatedAt) > (remote?.updatedAt ?? 0)
+      ? { kind: 'push', fields: local }
+      : { kind: 'pull', fields: remoteSide };
+  }
 }
 
 function hasLocalChanged(issue: IssueCard, link: IssueGithubLink): boolean {
   const baseline = link.localUpdatedAt ?? link.syncedAt;
-  return issue.updatedAt > baseline;
+  return (link.localChangedAt ?? issue.updatedAt) > baseline;
 }
 
 /** True when this card changed locally since the last GitHub watermark. */
@@ -228,6 +227,7 @@ export function nextGithubLink(input: {
     url: input.url,
     syncedAt: input.now,
     localUpdatedAt: input.localUpdatedAt,
+    localChangedAt: input.previous?.localChangedAt ?? input.localUpdatedAt,
   };
   if (input.repo ?? input.previous?.repo) link.repo = input.repo ?? input.previous?.repo;
   if (input.remoteUpdatedAt != null) link.remoteUpdatedAt = input.remoteUpdatedAt;

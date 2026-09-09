@@ -10,7 +10,7 @@ import {
 export { isIssueDraftExpanding, isIssueExpandOverlayOpen };
 
 const IDLE_LABEL = 'Expand issue';
-const IDLE_TITLE = 'Expand title and description from the current card';
+const IDLE_TITLE = 'Expand title, description, labels, and priority from the current card';
 const BUSY_LABEL = 'Expanding issue — click to cancel';
 const BUSY_TITLE = 'Expanding… click to cancel';
 

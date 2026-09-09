@@ -30,12 +30,12 @@ function makeIssue(partial: Partial<IssueCard> & Pick<IssueCard, 'id' | 'title'>
 }
 
 describe('issues-list-sort', () => {
-  test('default sort is updated descending', () => {
-    assert.deepEqual(DEFAULT_ISSUES_LIST_SORT, { key: 'updated', direction: 'desc' });
+  test('default sort is created descending', () => {
+    assert.deepEqual(DEFAULT_ISSUES_LIST_SORT, { key: 'created', direction: 'desc' });
   });
 
   test('defaultDirectionForSortKey prefers newest / highest for time and priority', () => {
-    assert.equal(defaultDirectionForSortKey('updated'), 'desc');
+    assert.equal(defaultDirectionForSortKey('created'), 'desc');
     assert.equal(defaultDirectionForSortKey('priority'), 'desc');
     assert.equal(defaultDirectionForSortKey('title'), 'asc');
     assert.equal(defaultDirectionForSortKey('id'), 'asc');
@@ -200,8 +200,17 @@ describe('issues-list-sort', () => {
   });
 
   test('ariaSortValue marks only the active column', () => {
-    const sort: IssuesListSort = { key: 'updated', direction: 'desc' };
-    assert.equal(ariaSortValue(sort, 'updated'), 'descending');
+    const sort: IssuesListSort = { key: 'created', direction: 'desc' };
+    assert.equal(ariaSortValue(sort, 'created'), 'descending');
     assert.equal(ariaSortValue(sort, 'title'), 'none');
   });
+});
+
+
+test('creation sort ignores later edits', () => {
+  const rows = [
+    makeIssue({ id: 'ISS-1', title: 'Old edited', createdAt: 10, updatedAt: 900 }),
+    makeIssue({ id: 'ISS-2', title: 'New', createdAt: 20, updatedAt: 20 }),
+  ];
+  assert.deepEqual(sortIssuesForList(rows, DEFAULT_ISSUES_LIST_SORT).map((row) => row.id), ['ISS-2', 'ISS-1']);
 });

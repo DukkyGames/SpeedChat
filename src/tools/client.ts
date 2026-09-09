@@ -3,6 +3,7 @@ import { executeBrowserTool } from './browser-executor';
 import { executeTodoWrite } from './todo-tools';
 import { executeBugBoardTool } from './bug-board-tools';
 import { executeIssueTool } from './issue-tools';
+import { withIssueToolImages } from './issue-tool-images';
 import { executeIssueV2Tool, isIssueV2Tool } from './issue-tools-v2';
 import { executeSubAgentTool } from './sub-agent-executor';
 import {
@@ -360,14 +361,14 @@ async function executeToolInner(
     const blocked = await maybeBlockToolForUserApproval(name, args, context, name);
     if (blocked) return blocked;
     const text = await executeIssueTool(name, args);
-    return { content: text };
+    return name === 'issue_get_state' ? withIssueToolImages(text) : { content: text };
   }
 
   if (isIssueV2Tool(name)) {
     const blocked = await maybeBlockToolForUserApproval(name, args, context, name);
     if (blocked) return blocked;
     const text = await executeIssueV2Tool(name, args);
-    return { content: text };
+    return name === 'issue_search' ? withIssueToolImages(text) : { content: text };
   }
 
   if (name === 'bug_add' || name === 'bug_update' || name === 'bug_get_state') {

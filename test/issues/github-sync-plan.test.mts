@@ -141,30 +141,28 @@ describe('one-sided changes', () => {
 });
 
 describe('conflicts', () => {
-  test('both sides edited is a conflict, not a last-writer-wins race', () => {
+  test('both sides edited pulls the newer remote', () => {
     const action = planIssueSync({
       mode: 'mirror',
       issue: issue({ github: link(), title: 'Mine', updatedAt: SYNCED_AT + 5 }),
       isClosed: false,
       remote: remote({ title: 'Theirs', updatedAt: SYNCED_AT + 9 }),
     });
-    assert.equal(action.kind, 'conflict');
-    if (action.kind !== 'conflict') return;
-    assert.equal(action.local.title, 'Mine');
-    assert.equal(action.remote.title, 'Theirs');
+    assert.equal(action.kind, 'pull');
+    assert.equal(action.kind === 'pull' && action.fields.title, 'Theirs');
   });
 
-  test('a newer remote does not win a conflict just by being newer', () => {
+  test('a newer remote wins a conflict', () => {
     const action = planIssueSync({
       mode: 'mirror',
       issue: issue({ github: link(), title: 'Mine', updatedAt: SYNCED_AT + 1 }),
       isClosed: false,
       remote: remote({ title: 'Theirs', updatedAt: SYNCED_AT + 10_000 }),
     });
-    assert.equal(action.kind, 'conflict');
+    assert.equal(action.kind, 'pull');
   });
 
-  test('content differing with no timestamp movement is a conflict, not a guess', () => {
+  test('equal timestamps deterministically prefer the remote', () => {
     // Something is diverging that the watermarks do not explain. Asking is the
     // only answer that cannot lose an edit.
     const action = planIssueSync({
@@ -173,7 +171,7 @@ describe('conflicts', () => {
       isClosed: false,
       remote: remote({ title: 'Different', updatedAt: SYNCED_AT }),
     });
-    assert.equal(action.kind, 'conflict');
+    assert.equal(action.kind, 'pull');
   });
 
   test('a remote with no updatedAt is never treated as changed', () => {
@@ -276,6 +274,7 @@ describe('watermark', () => {
       repo: 'o/r',
       syncedAt: 100,
       localUpdatedAt: 50,
+      localChangedAt: 50,
       remoteUpdatedAt: 60,
     });
   });
@@ -337,3 +336,15 @@ describe('gitLinkDuplicatesGithubIssue', () => {
     assert.equal(gitLinkDuplicatesGithubIssue({ kind: 'pr', ref: '#5' }, linked), false);
   });
 });
+
+ test('metadata updates do not need a push once the link has a field watermark', () => {
+  assert.equal(issueNeedsGithubPush(issue({ github: link({ localChangedAt: SYNCED_AT }), updatedAt: SYNCED_AT + 100 })), false);
+ });
+ test('newer local synced fields win a conflict', () => {
+  const action = planIssueSync({ mode: 'mirror', issue: issue({ github: link({ localChangedAt: 3000 }), title: 'Mine', updatedAt: 9000 }), isClosed: false, remote: remote({ title: 'Theirs', updatedAt: 2000 }) });
+  assert.equal(action.kind, 'push');
+ });
+ test('metadata timestamp cannot win over newer remote fields', () => {
+  const action = planIssueSync({ mode: 'mirror', issue: issue({ github: link({ localChangedAt: 2000 }), title: 'Mine', updatedAt: 9000 }), isClosed: false, remote: remote({ title: 'Theirs', updatedAt: 3000 }) });
+  assert.equal(action.kind, 'pull');
+ });

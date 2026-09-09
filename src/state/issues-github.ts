@@ -29,6 +29,8 @@ import {
   isIssuesStoreLoaded,
   listIssues,
   requireIssueStatusForRole,
+  refreshIssuesFromStorage,
+  saveIssuesNow,
   scheduleSaveIssues,
   updateIssue,
 } from './issues-store';
@@ -131,6 +133,20 @@ export function githubAutoSyncActive(): boolean {
   return getIssuesGithubMode() === 'mirror' && getIssuesGithubAuto();
 }
 
+// Settings can live in a separate app window. Notify this renderer's loop too.
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === MODE_STORAGE_KEY || event.key === null) {
+      cachedMode = null;
+      for (const listener of modeListeners) listener(getIssuesGithubMode());
+    }
+    if (event.key === AUTO_STORAGE_KEY || event.key === null) {
+      cachedAuto = null;
+      for (const listener of autoListeners) listener(getIssuesGithubAuto());
+    }
+  });
+}
+
 /** Every valid mode, for the settings control. */
 export { ISSUES_GITHUB_MODES };
 
@@ -216,21 +232,24 @@ async function readRemote(issueId: string): Promise<RemoteIssueSnapshot | null> 
   const issue = findIssueById(issueId);
   const number = issue?.github?.number;
   if (!number) return null;
-  const res = await forge('issueView', { number });
-  return res.ok && res.issue ? res.issue : null;
+  const res = await forge('issueView', { number, cwd: issue?.workspacePath });
+  if (!res.ok || !res.issue) throw new Error(res.error ?? 'Could not read the GitHub issue');
+  return res.issue;
 }
 
 // ── Sync ─────────────────────────────────────────────────────────────────────
 
-/**
- * Sync one issue.
- *
- * Returns the conflict rather than resolving it: the brief's gate is that
- * mirror mode never silently overwrites, and a function that could choose a
- * winner here would eventually be asked to.
- */
+/** Sync one issue, resolving divergent edits by their most recent change. */
 export async function syncIssueWithGithub(issueId: string): Promise<SyncOutcome> {
   try {
+    if (typeof navigator !== 'undefined' && navigator.locks) {
+      return await navigator.locks.request(`minnow-issue-github:${issueId}`, async () => {
+        await refreshIssuesFromStorage();
+        const outcome = await runIssueSync(issueId);
+        if (outcome.ok && getIssuesGithubMode() !== 'off') await saveIssuesNow();
+        return outcome;
+      });
+    }
     return await runIssueSync(issueId);
   } catch (err) {
     return {
@@ -243,11 +262,13 @@ export async function syncIssueWithGithub(issueId: string): Promise<SyncOutcome>
 
 /** Inner sync — throws only if the issues store itself is uninitialized. */
 async function runIssueSync(issueId: string): Promise<SyncOutcome> {
-  const issue = findIssueById(issueId);
-  if (!issue) return { ok: false, action: 'noop', error: 'Issue not found' };
-
   const mode = getIssuesGithubMode();
+  if (mode === 'off') return { ok: true, action: 'noop' };
   const remote = await readRemote(issueId);
+  const current = findIssueById(issueId);
+  if (!current) return { ok: false, action: 'noop', error: 'Issue not found' };
+  // Freeze the sent revision: edits during network calls must remain pending.
+  const issue = { ...current, labels: [...current.labels] };
   const action = planIssueSync({
     mode,
     issue,
@@ -257,10 +278,14 @@ async function runIssueSync(issueId: string): Promise<SyncOutcome> {
 
   switch (action.kind) {
     case 'noop':
+      if (remote && issue.github) {
+        writeLink(issueId, issue.github.number, remote.url, remote.updatedAt, issue.updatedAt);
+      }
       return { ok: true, action: 'noop', error: action.reason };
 
     case 'create': {
       const res = await forge('issueCreate', {
+        cwd: issue.workspacePath,
         title: issue.title,
         body: issue.description,
         labels: issue.labels,
@@ -272,17 +297,27 @@ async function runIssueSync(issueId: string): Promise<SyncOutcome> {
           error: userFacingGithubError(res.error ?? 'Could not create the issue'),
         };
       }
-      writeLink(issueId, res.number, res.url ?? '', undefined);
+      writeLink(issueId, res.number, res.url ?? '', undefined, issue.updatedAt);
+      if (localIsClosed(issue.status)) {
+        const closed = await forge('issueState', { number: res.number, state: 'closed', cwd: issue.workspacePath });
+        if (!closed.ok) {
+          // Keep the created identity, but leave the closed-state change pending.
+          const linked = findIssueById(issueId)?.github;
+          if (linked) linked.localUpdatedAt = 0;
+          scheduleSaveIssues();
+          return { ok: false, action: 'create', error: closed.error };
+        }
+      }
       return { ok: true, action: 'create', droppedLabels: res.droppedLabels };
     }
 
     case 'push': {
       const number = issue.github?.number;
       if (!number) return { ok: false, action: 'push', error: 'Not linked to a GitHub issue' };
-      const res = await pushSyncedFieldsToGithub(number, action.fields, remote);
+      const res = await pushSyncedFieldsToGithub(number, action.fields, remote, issue.workspacePath);
       if (!res.ok) return { ok: false, action: 'push', error: res.error };
       const after = await readRemote(issueId);
-      writeLink(issueId, number, issue.github?.url ?? '', after?.updatedAt);
+      writeLink(issueId, number, issue.github?.url ?? '', after?.updatedAt, issue.updatedAt);
       return { ok: true, action: 'push', droppedLabels: res.droppedLabels };
     }
 
@@ -332,7 +367,7 @@ export async function resolveSyncConflict(
   const res = await pushSyncedFieldsToGithub(conflict.number, conflict.local, {
     labels: conflict.remote.labels,
     state: conflict.remote.closed ? 'closed' : 'open',
-  });
+  }, issue.workspacePath);
   if (!res.ok) return { ok: false, action: 'push', error: res.error };
   const after = await readRemote(conflict.issueId);
   writeLink(conflict.issueId, conflict.number, conflict.url, after?.updatedAt);
@@ -349,9 +384,11 @@ async function pushSyncedFieldsToGithub(
   number: number,
   fields: SyncFields,
   remote: Pick<RemoteIssueSnapshot, 'labels' | 'state'> | null,
+  cwd?: string,
 ): Promise<{ ok: boolean; error?: string; droppedLabels?: boolean }> {
   const { add, remove } = githubLabelDiff(fields.labels, remote?.labels ?? []);
   const res = await forge('issueEdit', {
+    cwd,
     number,
     title: fields.title,
     body: fields.body,
@@ -361,13 +398,16 @@ async function pushSyncedFieldsToGithub(
   if (!res.ok) return { ok: false, error: userFacingGithubError(res.error) };
 
   if (remote && fields.closed !== (remote.state === 'closed')) {
-    await forge('issueState', { number, state: fields.closed ? 'closed' : 'open' });
+    const stateResult = await forge('issueState', { number, state: fields.closed ? 'closed' : 'open', cwd });
+    if (!stateResult.ok) return { ok: false, error: userFacingGithubError(stateResult.error) };
   }
   return { ok: true, droppedLabels: res.droppedLabels };
 }
 
 function applyRemoteToIssue(issueId: string, fields: SyncFields): void {
-  const status = fields.closed ? statusForClosedRemote() : findIssueById(issueId)?.status;
+  const currentStatus = findIssueById(issueId)?.status;
+  const status = fields.closed ? statusForClosedRemote()
+    : currentStatus && localIsClosed(currentStatus) ? requireIssueStatusForRole('backlog') : currentStatus;
   // Pulls must not look like local edits or Auto would push the same fields back.
   updateIssue(
     issueId,
@@ -386,17 +426,20 @@ function writeLink(
   number: number,
   url: string,
   remoteUpdatedAt: number | undefined,
+  syncedLocalUpdatedAt?: number,
 ): void {
   const issue = findIssueById(issueId);
   if (!issue) return;
+  const localChangedAt = issue.github?.localChangedAt ?? issue.updatedAt;
   issue.github = nextGithubLink({
     previous: issue.github,
     number,
     url,
-    localUpdatedAt: issue.updatedAt,
+    localUpdatedAt: syncedLocalUpdatedAt ?? issue.updatedAt,
     remoteUpdatedAt,
     now: Date.now(),
   });
+  issue.github.localChangedAt = localChangedAt;
   appendIssueLinks(issueId, {
     gitLinks: [{ kind: 'github-issue', ref: `#${number}`, url }],
   });
@@ -443,6 +486,7 @@ export async function importGithubIssues(options?: {
     const res = await forge('issueList', {
       state: options?.state ?? 'open',
       limit: options?.limit ?? 100,
+      cwd: getWorkspacePath(),
     });
     if (!res.ok || !Array.isArray(res.issues)) {
       return {

@@ -70,6 +70,12 @@ export async function openIssuesFileDrawer(): Promise<void> {
   if (drawerOpen) return;
   if (getForegroundAppId() !== 'issues') return;
 
+  // Dedicated app windows never foreground Code, so its lazy file-panel setup
+  // has not run yet (tree actions, server availability, search and drag/drop).
+  const { ensureCodeWorkspaceModules } = await import('../boot/code-workspace-modules');
+  await ensureCodeWorkspaceModules();
+  if (getForegroundAppId() !== 'issues' || drawerOpen) return;
+
   const sidebar = document.getElementById('fileSidebar');
   if (!sidebar) return;
 
@@ -81,11 +87,10 @@ export async function openIssuesFileDrawer(): Promise<void> {
     patchFilePanelState({ fileSidebarCollapsed: false });
   }
 
-  await initFileTreeIfNeeded();
-  applyFileSidebarVisuals();
-
   drawerOpen = true;
   document.documentElement.classList.add('issues-file-drawer-open');
+  await initFileTreeIfNeeded();
+  applyFileSidebarVisuals();
   emit();
 }
 

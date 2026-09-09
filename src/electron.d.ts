@@ -279,6 +279,10 @@ export interface MinnowShellApi {
 }
 
 export interface MinnowWindowApi {
+  reportCodeIssueLink?: (requestId: string, chatId: string) => Promise<void>;
+  onCodeIssueLink?: (callback: (issueId: string, chatId: string) => void) => () => void;
+  sendCodeCommand?: (command: import('../electron/code-window-command').CodeWindowCommand) => Promise<{ ok: boolean; error?: string }>;
+  onCodeCommand?: (callback: (command: import('../electron/code-window-command').CodeWindowCommand) => void) => () => void;
   minimize(): Promise<void>;
   maximize(): Promise<void>;
   close(): Promise<void>;

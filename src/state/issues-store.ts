@@ -3,6 +3,7 @@
  * One-time migration from bugs/state.json + localStorage minnow-bugs-v1.
  */
 
+import { mergeIssuesState } from '../issues/state-merge.ts';
 import { normalizeWorkspacePath } from '../lib/normalize-workspace-path.ts';
 import {
   normalizeProjectKeyInput,
@@ -560,6 +561,7 @@ const NORMALIZED_GITHUB_KEYS: ReadonlySet<string> = new Set([
   'syncedAt',
   'remoteUpdatedAt',
   'localUpdatedAt',
+  'localChangedAt',
 ]);
 
 /**
@@ -586,6 +588,9 @@ function parseIssueGithubLink(raw: unknown): IssueGithubLink | null {
   }
   if (typeof row.localUpdatedAt === 'number' && Number.isFinite(row.localUpdatedAt)) {
     out.localUpdatedAt = row.localUpdatedAt;
+  }
+  if (typeof row.localChangedAt === 'number' && Number.isFinite(row.localChangedAt)) {
+    out.localChangedAt = row.localChangedAt;
   }
   return preserveUnknownKeys(row, out, NORMALIZED_GITHUB_KEYS);
 }
@@ -1063,26 +1068,76 @@ export function scheduleSaveIssues(): void {
   if (saveTimer) clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     saveTimer = null;
-    void saveIssuesNow();
+    void saveIssuesNow().catch(() => {});
   }, 400);
 }
 
-/** Immediate persist. */
+let persistedIssuesBase: IssuesState | null = null;
+let storageWork: Promise<unknown> = Promise.resolve();
+const ISSUES_CHANGED_KEY = 'minnow.issues.changed';
+
+function cloneState(state: IssuesState): IssuesState {
+  return JSON.parse(JSON.stringify(state)) as IssuesState;
+}
+
+/** Serialize read/merge/write across renderer windows as well as within this one. */
+function withIssuesStorageLock<T>(work: () => Promise<T>): Promise<T> {
+  const run = () => typeof navigator !== 'undefined' && navigator.locks
+    ? navigator.locks.request('minnow-issues-storage', work) : work();
+  const next = storageWork.then(run, run);
+  storageWork = next.catch(() => {});
+  return next;
+}
+
+async function readPersistedIssues(): Promise<IssuesState | null> {
+  const raw = isServerStorageMode() ? await getIssues() : JSON.parse(localStorage.getItem(ISSUES_STORAGE_KEY) ?? 'null');
+  return raw === null ? null : parseIssuesState(raw);
+}
+
+/** Refresh another window's writes without discarding unsaved edits or deletions. */
+export async function refreshIssuesFromStorage(): Promise<void> {
+  await withIssuesStorageLock(async () => {
+    if (!issuesState) return;
+    const remote = await readPersistedIssues();
+    if (!remote) return;
+    issuesState = persistedIssuesBase ? mergeIssuesState(persistedIssuesBase, issuesState, remote) : issuesState;
+    persistedIssuesBase = cloneState(remote);
+    emitIssuesChange();
+  });
+}
+
+/** Immediate persist, retaining edits made by other windows or during the request. */
 export async function saveIssuesNow(): Promise<void> {
   if (!issuesState) return;
-  if (isServerStorageMode()) {
+  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+  return withIssuesStorageLock(async () => {
+    if (!issuesState) return;
     try {
-      await putIssues(issuesState);
-    } catch {
-      void import('../ui/status.ts').then((m) =>
-        m.setStatus('err', 'Could not save issues to ~/.minnow'),
-      );
+      const remote = await readPersistedIssues();
+      const before = cloneState(issuesState);
+      const merged = remote && persistedIssuesBase ? mergeIssuesState(persistedIssuesBase, before, remote) : before;
+      if (isServerStorageMode()) await putIssues(merged);
+      else localStorage.setItem(ISSUES_STORAGE_KEY, JSON.stringify(merged));
+      // The UI may have changed while PUT was pending. Keep that delta pending.
+      issuesState = mergeIssuesState(before, issuesState, merged);
+      persistedIssuesBase = cloneState(merged);
+      try { localStorage.setItem(ISSUES_CHANGED_KEY, `${Date.now()}:${Math.random()}`); } catch {}
+      emitIssuesChange();
+    } catch (error) {
+      const message = error instanceof Error && error.message.startsWith('Issue ID ')
+        ? error.message : 'Could not save issues to ~/.minnow';
+      void import('../ui/status.ts').then((m) => m.setStatus('err', message));
+      throw error;
     }
-    return;
-  }
-  try {
-    localStorage.setItem(ISSUES_STORAGE_KEY, JSON.stringify(issuesState));
-  } catch {}
+  });
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('storage', (event) => {
+    if (event.key === ISSUES_CHANGED_KEY || event.key === ISSUES_STORAGE_KEY) {
+      void refreshIssuesFromStorage().catch(() => {});
+    }
+  });
 }
 
 /**
@@ -1136,6 +1191,7 @@ export async function loadIssuesFromStorage(): Promise<void> {
       const raw = await getIssues();
       if (raw !== null) {
         issuesState = parseIssuesState(raw);
+        persistedIssuesBase = cloneState(issuesState);
         issuesLoaded = true;
         return;
       }
@@ -1159,6 +1215,7 @@ export async function loadIssuesFromStorage(): Promise<void> {
     const raw = localStorage.getItem(ISSUES_STORAGE_KEY);
     if (raw) {
       issuesState = parseIssuesState(JSON.parse(raw));
+      persistedIssuesBase = cloneState(issuesState);
       issuesLoaded = true;
       return;
     }
@@ -1612,6 +1669,10 @@ export function updateIssue(
   if (patch.githubSync !== undefined) issue.githubSync = patch.githubSync;
   const afterSynced = githubSyncedSnapshot(issue, isClosedStatus(taxonomy, issue.status));
   issue.updatedAt = nowMs;
+  if (issue.github && githubSyncedFieldsChanged(beforeSynced, afterSynced)) {
+    issue.updatedAt = Math.max(nowMs, (issue.github.localChangedAt ?? issue.github.localUpdatedAt ?? 0) + 1);
+    issue.github.localChangedAt = issue.updatedAt;
+  }
   touchIssuesStore();
   // Auto-sync keys off GitHub-shaped fields, not every updatedAt bump (rank, assignee, …).
   if (!options?.skipGithubAutoSync && githubSyncedFieldsChanged(beforeSynced, afterSynced)) {
@@ -2293,6 +2354,7 @@ export function setIssuesStateForTests(state: IssuesState | null): void {
     saveTimer = null;
   }
   issuesState = state;
+  persistedIssuesBase = state ? cloneState(state) : null;
   issuesLoaded = state !== null;
 }
 

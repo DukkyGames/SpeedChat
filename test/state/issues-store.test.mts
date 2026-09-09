@@ -3,7 +3,7 @@
  */
 
 import assert from 'node:assert/strict';
-import { beforeEach, describe, test } from 'node:test';
+import { afterEach, beforeEach, describe, test } from 'node:test';
 import {
   addIssue,
   bugColumnToIssueStatus,
@@ -31,9 +31,21 @@ import type { BugCard, Chat } from '../../src/types.ts';
 const FIXED_NOW = 1710000002000;
 
 describe('issues-store', () => {
+  const originalStorage = Object.getOwnPropertyDescriptor(globalThis, 'localStorage');
   beforeEach(() => {
+    const memory = new Map<string, string>();
+    Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
+      getItem: (key: string) => memory.get(key) ?? null,
+      setItem: (key: string, value: string) => memory.set(key, String(value)),
+    } });
     setIssuesNowForTests(() => FIXED_NOW);
     setIssuesStateForTests({ version: 2, nextId: 1, issues: [], workspaces: {} });
+  });
+
+  afterEach(() => {
+    setIssuesStateForTests(null);
+    if (originalStorage) Object.defineProperty(globalThis, 'localStorage', originalStorage);
+    else delete (globalThis as { localStorage?: Storage }).localStorage;
   });
 
   test('addIssue allocates workspace project key ids', () => {
@@ -202,6 +214,8 @@ describe('issues-store', () => {
     assert.equal(imported?.legacyBugId, 'bug-from-chat');
     assert.equal(imported?.priority, 'high');
     assert.equal(chat.bugBoard, undefined);
+    const saved = JSON.parse(localStorage.getItem('minnow-issues-v1')!);
+    assert.equal(saved.issues[0].legacyBugId, 'bug-from-chat');
   });
 
   test('normalizeIssueLabel trims and collapses whitespace', () => {

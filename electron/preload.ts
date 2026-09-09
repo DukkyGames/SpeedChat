@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 import * as channels from './ipc-channels.js';
+import type { CodeWindowCommand } from './code-window-command.js';
 import type { CdpPickedElement } from './preview-cdp-adapt.js';
 import type { PreviewContextMenuOpenPayload } from './preview-context-menu.js';
 import type { PreviewContextMenuRole } from './preview-context-menu-items.js';
@@ -375,6 +376,21 @@ const minnowBridge = {
     restart: (): Promise<void> => ipcRenderer.invoke(channels.APP_RESTART),
   },
   window: {
+    reportCodeIssueLink: (requestId: string, chatId: string): Promise<void> =>
+      ipcRenderer.invoke(channels.WINDOW_CODE_LINK, requestId, chatId),
+    onCodeIssueLink: (callback: (issueId: string, chatId: string) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, issueId: string, chatId: string) => callback(issueId, chatId);
+      ipcRenderer.on(channels.WINDOW_CODE_LINK, handler);
+      return () => ipcRenderer.removeListener(channels.WINDOW_CODE_LINK, handler);
+    },
+    sendCodeCommand: (command: CodeWindowCommand): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke(channels.WINDOW_CODE_COMMAND, command),
+    onCodeCommand: (callback: (command: CodeWindowCommand) => void): (() => void) => {
+      const handler = (_event: IpcRendererEvent, command: CodeWindowCommand) => callback(command);
+      ipcRenderer.on(channels.WINDOW_CODE_COMMAND, handler);
+      void ipcRenderer.invoke(channels.WINDOW_CODE_READY);
+      return () => ipcRenderer.removeListener(channels.WINDOW_CODE_COMMAND, handler);
+    },
     minimize: (): Promise<void> => ipcRenderer.invoke(channels.WINDOW_MINIMIZE),
     maximize: (): Promise<void> => ipcRenderer.invoke(channels.WINDOW_MAXIMIZE),
     close: (): Promise<void> => ipcRenderer.invoke(channels.WINDOW_CLOSE),

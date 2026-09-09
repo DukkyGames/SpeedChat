@@ -14,6 +14,12 @@ import {
 } from 'electron';
 import { configurePreviewSession } from './preview-session.js';
 import * as channels from './ipc-channels.js';
+import type { CodeWindowCommand } from './code-window-command.js';
+
+const codeCommandReady = new Set<number>();
+const pendingCodeCommands = new Map<number, CodeWindowCommand[]>();
+const codeCommandOrigins = new Map<string, { originId: number; targetId: number; issueId: string }>();
+let codeCommandSequence = 0;
 import * as crashLog from './crash-log.js';
 import {
   destroyAllPreviewHosts,
@@ -509,6 +515,49 @@ function registerIpcHandlers(): void {
   });
 
   ipcMain.handle(channels.WINDOW_NEW, async () => openNewShellWindow());
+
+  ipcMain.handle(channels.WINDOW_CODE_READY, (event) => {
+    const win = BrowserWindow.fromWebContents(event.sender);
+    if (!win || shellWindows.get(win.id)?.appId) return;
+    codeCommandReady.add(win.id);
+    for (const command of pendingCodeCommands.get(win.id) ?? []) {
+      event.sender.send(channels.WINDOW_CODE_COMMAND, command);
+    }
+    pendingCodeCommands.delete(win.id);
+    win.once('closed', () => {
+      codeCommandReady.delete(win.id);
+      pendingCodeCommands.delete(win.id);
+    });
+  });
+
+  ipcMain.handle(channels.WINDOW_CODE_LINK, (event, requestId: string, chatId: string) => {
+    const source = codeCommandOrigins.get(requestId);
+    if (!source || source.targetId !== event.sender.id || typeof chatId !== 'string') return;
+    codeCommandOrigins.delete(requestId);
+    const origin = BrowserWindow.getAllWindows().find((win) => win.webContents.id === source.originId);
+    if (origin && !origin.isDestroyed()) origin.webContents.send(channels.WINDOW_CODE_LINK, source.issueId, chatId);
+  });
+
+  ipcMain.handle(channels.WINDOW_CODE_COMMAND, async (event, command: CodeWindowCommand) => {
+    if (!command || typeof command.workspacePath !== 'string' || !command.workspacePath.trim() ||
+        !['seed', 'file', 'chat', 'board', 'activity'].includes(command.kind)) {
+      return { ok: false, error: 'Invalid Code window command' };
+    }
+    const opened = await openOrFocusWorkspaceWindow(command.workspacePath.trim());
+    if (!opened.ok) return opened;
+    const record = shellWindows.findByWorkspace(command.workspacePath.trim());
+    const win = record && BrowserWindow.fromId(record.windowId);
+    if (!win || win.isDestroyed()) return { ok: false, error: 'Code window unavailable' };
+    if (command.kind === 'seed' && command.issueId) {
+      const requestId = String(++codeCommandSequence);
+      codeCommandOrigins.set(requestId, { originId: event.sender.id, targetId: win.webContents.id, issueId: command.issueId });
+      command = { ...command, requestId };
+      setTimeout(() => codeCommandOrigins.delete(requestId), 60 * 60 * 1000).unref();
+    }
+    if (codeCommandReady.has(win.id)) win.webContents.send(channels.WINDOW_CODE_COMMAND, command);
+    else pendingCodeCommands.set(win.id, [...(pendingCodeCommands.get(win.id) ?? []), command]);
+    return { ok: true };
+  });
 
   ipcMain.handle(channels.WINDOW_OPEN_WORKSPACE, async (_event, workspacePath: unknown) => {
     if (typeof workspacePath !== 'string' || !workspacePath.trim()) {

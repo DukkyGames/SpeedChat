@@ -13,7 +13,7 @@ import { Window } from 'happy-dom';
 
 const windows: Window[] = [];
 
-async function mountEditor(value: string): Promise<{
+async function mountEditor(value: string, issueId?: string): Promise<{
   handle: Awaited<ReturnType<typeof importEditor>>['createIssueEditor'] extends (
     host: HTMLElement,
     options: infer O,
@@ -41,6 +41,7 @@ async function mountEditor(value: string): Promise<{
   const changes: string[] = [];
   const handle = createIssueEditor(host, {
     value,
+    issueId,
     onChange: (markdown: string) => changes.push(markdown),
   });
   const body = host.querySelector('.mn-editor__body') as HTMLElement;
@@ -53,6 +54,81 @@ function importEditor(): Promise<typeof import('../../src/ui/issue-editor')> {
 
 afterEach(() => {
   for (const window of windows.splice(0)) window.close();
+});
+
+test('dropping an image inserts it inline, persists its record, and survives reopening', async () => {
+  const store = await import('../../src/state/issues-store.ts');
+  const config = await import('../../src/tools/config.ts');
+  store.setIssuesStateForTests({ version: 2, schemaRevision: 3, nextId: 1, issues: [] });
+  const issue = store.addIssue({ title: 'Image context', description: 'Before after' });
+  const { body, handle } = await mountEditor('Before after', issue.id);
+  const originalFetch = globalThis.fetch;
+  config.setLocalServerAvailableForTests(true);
+  globalThis.fetch = (async () => new Response(JSON.stringify({ attachment: {
+    key: `${issue.id}/screen.png`, name: 'screen.png', path: `/attachments/${issue.id}/screen.png`, mime: 'image/png', bytes: 3,
+  } }), { status: 200 })) as typeof fetch;
+  try {
+    const range = document.createRange();
+    range.setStart(body.querySelector('p')!.firstChild!, 7);
+    range.collapse(true);
+    window.getSelection()!.addRange(range);
+    const event = new window.Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', { value: { files: [
+      { name: 'screen.png', type: 'image/png', size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer },
+    ] } });
+    body.dispatchEvent(event);
+    for (let i = 0; i < 100 && !store.findIssueById(issue.id)?.attachments?.length; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    assert.equal(event.defaultPrevented, true);
+    assert.equal(store.findIssueById(issue.id)?.attachments?.length, 1);
+    const markdown = handle.getValue();
+    assert.match(markdown, /^Before !\[screen.png\]/);
+    assert.match(markdown, /after$/);
+    handle.setValue(markdown);
+    assert.equal(body.querySelector('img')?.getAttribute('src'), `/api/issues/attachments?key=${issue.id}%2Fscreen.png`);
+    assert.equal(handle.flush(), markdown);
+  } finally {
+    globalThis.fetch = originalFetch;
+    config.setLocalServerAvailableForTests(false);
+    store.setIssuesStateForTests(null);
+  }
+});
+
+test('draft image metadata survives expansion and attaches when the issue is created', async () => {
+  const store = await import('../../src/state/issues-store.ts');
+  const config = await import('../../src/tools/config.ts');
+  store.setIssuesStateForTests({ version: 2, schemaRevision: 3, nextId: 1, issues: [] });
+  const { body, handle } = await mountEditor('Draft context');
+  const originalFetch = globalThis.fetch;
+  config.setLocalServerAvailableForTests(true);
+  globalThis.fetch = (async (_url, init) => {
+    const request = JSON.parse(String(init?.body));
+    return new Response(JSON.stringify({ attachment: {
+      key: `${request.issueId}/screen.png`, name: 'screen.png', path: `/attachments/${request.issueId}/screen.png`, mime: 'image/png', bytes: 3,
+    } }));
+  }) as typeof fetch;
+  try {
+    const event = new window.Event('drop', { bubbles: true, cancelable: true });
+    Object.defineProperty(event, 'dataTransfer', { value: { files: [
+      { name: 'screen.png', type: 'image/png', size: 3, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer },
+    ] } });
+    body.dispatchEvent(event);
+    await handle.waitForImages();
+    const markdown = `${handle.flush()}\n\nExpanded acceptance criteria`;
+    handle.setValue(markdown);
+    const issue = store.addIssue({ title: 'Created with image', description: handle.flush() });
+    handle.attachImagesToIssue(issue.id);
+    assert.match(issue.description, /!\[screen.png\]/);
+    assert.equal(store.findIssueById(issue.id)?.attachments?.length, 1);
+    assert.match(store.findIssueById(issue.id)!.attachments![0].path, /\/draft-/);
+    handle.setValue('');
+    assert.equal(handle.getValue(), '');
+  } finally {
+    globalThis.fetch = originalFetch;
+    config.setLocalServerAvailableForTests(false);
+    store.setIssuesStateForTests(null);
+  }
 });
 
 /** A description shaped like something an agent would actually write. */

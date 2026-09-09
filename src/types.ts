@@ -223,7 +223,7 @@ export interface AssistantToolCallMessage {
 export interface ToolImageAttachment {
   type: 'image';
   url: string;
-  mime: 'image/png';
+  mime: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp';
   alt?: string;
   /** PNG data URL so VLMs can see the pixels (the `url` path is UI-only). */
   dataUrl?: string;
@@ -878,6 +878,8 @@ export interface IssueGithubLink {
   remoteUpdatedAt?: number;
   /** Local `updatedAt` observed at the last sync. */
   localUpdatedAt?: number;
+  /** Last local edit to title, description, labels, or closed state (excludes metadata). */
+  localChangedAt?: number;
 }
 
 /** Per-workspace project key + counter for KEY-n allocation. */

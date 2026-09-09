@@ -3,14 +3,9 @@
  * 5-minute linked-only pull while Minnow is running (including background).
  *
  * Decisions stay in `github-sync-plan.ts`. This module only schedules when
- * to call `syncIssueWithGithub` and how to surface conflicts. It never
- * chooses a winner.
+ * to call `syncIssueWithGithub`. Successful background sync stays quiet.
  */
 
-import {
-  githubAutoConflictShouldUsePeek,
-  githubAutoConflictToast,
-} from '../issues/github-auto-conflict';
 import { userFacingGithubError, isLocalServerOfflineError } from '../issues/github-error';
 import { isLocalServerAvailable } from '../tools/config';
 import { findIssueById, listIssues } from './issues-store';
@@ -20,7 +15,6 @@ import {
   subscribeIssuesGithubAuto,
   subscribeIssuesGithubMode,
   syncIssueWithGithub,
-  type SyncConflict,
   type SyncOutcome,
 } from './issues-github';
 
@@ -115,33 +109,7 @@ async function toastError(message: string): Promise<void> {
   } catch {}
 }
 
-async function surfaceConflict(conflict: SyncConflict): Promise<void> {
-  let openIssueId: string | undefined;
-  try {
-    const detail = await import('../ui/issues-detail');
-    openIssueId = detail.getSelectedIssueId();
-  } catch {
-    openIssueId = undefined;
-  }
-
-  if (githubAutoConflictShouldUsePeek(conflict.issueId, openIssueId)) {
-    try {
-      const githubUi = await import('../ui/issues-github-section');
-      if (githubUi.presentGithubSyncConflict(conflict)) return;
-    } catch {}
-  }
-
-  try {
-    const { showToast } = await import('../ui/toast');
-    showToast(githubAutoConflictToast(conflict.number), 'error', 6_000);
-  } catch {}
-}
-
 async function handleAutoOutcome(outcome: SyncOutcome): Promise<void> {
-  if (outcome.conflict) {
-    await surfaceConflict(outcome.conflict);
-    return;
-  }
   if (outcome.ok) return;
   const message = userFacingGithubError(outcome.error);
   if (isAuthOrGhError(outcome.error ?? '') || isLocalServerOfflineError(message)) {
@@ -220,49 +188,13 @@ export async function runGithubAutoSyncLinkedPass(): Promise<void> {
 
   pollerInFlight = true;
   try {
-    const conflicts: SyncConflict[] = [];
     for (const issue of listIssues()) {
       if (!issue.github) continue;
       if (isGithubAutoSyncBusy(issue.id)) continue;
-      const outcome = await syncIssueWithGithub(issue.id);
-      if (outcome.conflict) conflicts.push(outcome.conflict);
-      else if (!outcome.ok && outcome.error) {
-        if (isAuthOrGhError(outcome.error) || isLocalServerOfflineError(outcome.error)) {
-          pollerCooldownUntil = nowMs() + errorCooldownMs;
-          await toastError(userFacingGithubError(outcome.error));
-          break;
-        }
-        await toastError(userFacingGithubError(outcome.error));
-      }
+      await runAutoSync(issue.id);
+      if (nowMs() < pollerCooldownUntil || !githubAutoSyncActive()) break;
     }
 
-    if (conflicts.length === 1) {
-      await surfaceConflict(conflicts[0]);
-      return;
-    }
-    if (conflicts.length > 1) {
-      let openIssueId: string | undefined;
-      try {
-        const detail = await import('../ui/issues-detail');
-        openIssueId = detail.getSelectedIssueId();
-      } catch {
-        openIssueId = undefined;
-      }
-      const openConflict = conflicts.find((row) => row.issueId === openIssueId);
-      if (openConflict) await surfaceConflict(openConflict);
-      const rest = openConflict
-        ? conflicts.filter((row) => row.issueId !== openConflict.issueId)
-        : conflicts;
-      if (rest.length === 0) return;
-      try {
-        const { showToast } = await import('../ui/toast');
-        const message =
-          rest.length === 1
-            ? githubAutoConflictToast(rest[0].number)
-            : `Both sides changed on ${rest.length} issues. Open an issue to pick.`;
-        showToast(message, 'error', 6_000);
-      } catch {}
-    }
   } finally {
     pollerInFlight = false;
   }

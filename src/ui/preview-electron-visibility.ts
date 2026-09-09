@@ -63,7 +63,11 @@ export function isNonCodeOsAppLayerActive(): boolean {
 export function isFullscreenOverlayObscuringWorkspace(): boolean {
   for (const id of FULLSCREEN_OVERLAY_IDS) {
     const el = document.getElementById(id);
-    if (el?.classList.contains('is-open')) return true;
+    if (!el?.classList.contains('is-open')) continue;
+    // App pages stay mounted/open when cached by app-host. Only their active
+    // layer covers Code; an inactive Issues/Settings page must not hide guests.
+    if (el.classList.contains('mn-os-app-layer') && !el.classList.contains('is-active')) continue;
+    return true;
   }
   return isNonCodeOsAppLayerActive();
 }

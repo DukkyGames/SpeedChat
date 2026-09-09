@@ -755,6 +755,10 @@
   caret-color: transparent;
 }
 
+#issuesExpandLabels {
+  min-height: 3.5rem;
+}
+
 .issues-expand-btn {
   position: relative;
   flex: 0 0 auto;
@@ -1125,7 +1129,7 @@
   background: color-mix(in oklch, var(--mn-warning) 6%, transparent);
 }
 
-.issues-row__updated {
+.issues-row__created {
   font-size: 12px;
   color: var(--mn-fg-muted);
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -3705,10 +3709,10 @@ button.issues-detail__row:focus-visible {
   .issues-list-head__rollup,
   .issues-list-head__counts,
   .issues-list-head__labels,
-  .issues-list-head__updated,
+  .issues-list-head__created,
   .issues-row__type,
   .issues-row__labels,
-  .issues-row__updated,
+  .issues-row__created,
   .issues-row__assignee,
   .issues-row__project,
   .issues-row__agent,

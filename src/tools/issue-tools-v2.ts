@@ -123,6 +123,8 @@ function runSearch(args: Record<string, unknown>): string {
     }
   }
   const fields = requested && requested.length > 0 ? requested : [...DEFAULT_FIELDS];
+  // Reading the description includes its image context, even with a narrow projection.
+  if (fields.includes('description') && !fields.includes('attachments')) fields.push('attachments');
 
   const limit = Math.min(MAX_LIMIT, Math.max(1, int(args, 'limit') ?? DEFAULT_LIMIT));
   const offset = Math.max(0, int(args, 'offset') ?? 0);

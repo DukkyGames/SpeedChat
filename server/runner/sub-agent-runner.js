@@ -265,12 +265,12 @@ function createSubAgentRunner(deps) {
       throw new Error(`HTTP ${res.status}: ${err}`);
     }
     const modelId = body.model ?? "";
-    const inlineRouter = new InlineContentThinkingRouter({
+    let inlineRouter = new InlineContentThinkingRouter({
       thinkingModel: modelLikelyUsesInlineThinking(modelId)
     });
-    const harmonyRouter = new HarmonyChannelRouter();
-    const toolCallRouter = new ContentToolCallRouter();
-    const thinkingToolCallRouter = new ContentToolCallRouter();
+    let harmonyRouter = new HarmonyChannelRouter();
+    let toolCallRouter = new ContentToolCallRouter();
+    let thinkingToolCallRouter = new ContentToolCallRouter();
     const carriedText = streamOptions?.carriedText ?? "";
     let proseText = carriedText;
     let reasoningText = streamOptions?.carriedReasoning ?? "";
@@ -421,6 +421,20 @@ function createSubAgentRunner(deps) {
     const decoder = new TextDecoder();
     const sseBuffer = createSseEventBuffer();
     function handleChunk(chunk) {
+      if (chunk.minnow_router?.reset) {
+        proseText = carriedText;
+        reasoningText = streamOptions?.carriedReasoning ?? '';
+        streamMeta = {}; toolAcc = {}; tFirst = null;
+        toolCallPhaseStarted = false; reasoningEnded = false; thinkingChannel = undefined;
+        inlineRouter = new InlineContentThinkingRouter({ thinkingModel: modelLikelyUsesInlineThinking(chunk.minnow_router.modelId) });
+        harmonyRouter = new HarmonyChannelRouter();
+        toolCallRouter = new ContentToolCallRouter();
+        thinkingToolCallRouter = new ContentToolCallRouter();
+        onTurnEvent?.({ type: 'response_restart', warning: chunk.minnow_router.warning });
+        onDelta?.(proseText);
+        streamOptions?.onReasoningDelta?.(reasoningText);
+        return;
+      }
       streamMeta = mergeStreamMeta(streamMeta, chunk);
       emitStreamMeta();
       toolAcc = mergeToolCallDelta(toolAcc, chunk);

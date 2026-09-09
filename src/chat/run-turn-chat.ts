@@ -1407,6 +1407,9 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
       },
       onEvent: (event) => {
         chatStore.observe(event);
+        if (event.type === 'response_restart') {
+          liveStreamMeta = {}; statsTFirst = null; statsT0 = performance.now();
+        }
         if (event.type === 'round_start') {
           liveStreamMeta = {};
           statsT0 = performance.now();

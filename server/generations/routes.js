@@ -4,6 +4,8 @@
  */
 
 import { validateProviderId } from '../providers/validate.js';
+import { handleRouterRequest } from '../model-routers/routes.js';
+import { pumpRouterGeneration } from '../model-routers/generation.js';
 import { readConfigJson } from '../config/store.js';
 import { listProviders } from '../providers/store.js';
 import { resolveFallbackChain } from './fallback.js';
@@ -67,6 +69,7 @@ export async function handleGenerationsRequest(req, res, pathname) {
   }
 
   try {
+    if (await handleRouterRequest(req, res, pathname, readJsonBody, sendJson)) return true;
     if (pathname === '/api/generations' && req.method === 'POST') {
       const payload = await readJsonBody(req);
       const providerId =
@@ -112,7 +115,8 @@ export async function handleGenerationsRequest(req, res, pathname) {
         chatId: typeof payload.chatId === 'string' ? payload.chatId : null,
       });
 
-      pumpUpstream({ state });
+      if (providerId === 'minnow-router') pumpRouterGeneration(state);
+      else pumpUpstream({ state });
       sendJson(res, 201, {
         generationId: state.id,
         candidateCount: candidates.length,

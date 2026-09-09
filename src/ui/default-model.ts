@@ -6,6 +6,8 @@ import {
   resolveModelSelectValueForChat,
 } from '../lib/model-select-key';
 
+import { getRouterConfigSync } from '../models/routers';
+
 export const DEFAULT_MODEL_STORAGE_KEY = 'minnow-default-model-select';
 
 /** Read the persisted default model select value (composite key or canonical id). */
@@ -41,6 +43,8 @@ export function syncPerChatModelBindingFromCatalog(chat: ModelSelectChatBinding)
 
 /** Read canonical model id + optional provider from the default #modelSelect. */
 export function readDefaultModelBinding(): { modelId: string; providerId?: string } {
+  const routerId = getRouterConfigSync().defaultRouterId;
+  if (routerId) return { providerId: 'minnow-router', modelId: routerId };
   const raw = (document.getElementById('modelSelect') as HTMLSelectElement | null)?.value ?? '';
   const parsed = decodeModelSelectKey(raw);
   const modelId = (parsed?.modelId ?? raw).trim();
@@ -49,6 +53,9 @@ export function readDefaultModelBinding(): { modelId: string; providerId?: strin
 
 /** Resolve the best persisted default against current catalog options. */
 export function resolveDefaultModelSelectValue(optionValues: readonly string[]): string {
+  const routerId = getRouterConfigSync().defaultRouterId;
+  const routerValue = routerId ? encodeModelSelectKey('minnow-router', routerId) : '';
+  if (routerValue && optionValues.includes(routerValue)) return routerValue;
   const persisted = readPersistedDefaultModelValue();
   if (persisted && optionValues.includes(persisted)) return persisted;
   return '';
@@ -94,6 +101,8 @@ export function resolveEffectiveChatModelBinding(
 
 /** Apply the global default binding onto a chat (e.g. new chat or ephemeral reuse). */
 export function applyDefaultModelToChat(chat: ModelSelectChatBinding): void {
+  const routerId = getRouterConfigSync().defaultRouterId;
+  if (routerId) { chat.providerId = 'minnow-router'; chat.modelId = routerId; return; }
   const sel = document.getElementById('modelSelect') as HTMLSelectElement | null;
   const optionValues = sel ? [...sel.options].map((o) => o.value) : [];
   const defaultRaw = sel?.value.trim() ?? '';

@@ -65,7 +65,17 @@ export class ThoughtBubbleController {
     this.anthropicThinkingSignature = null;
   }
 
-  /** Point the controller at the active assistant row (e.g. after a tool round replaces the streaming bubble wrapper). */
+  /** Discard reasoning from a failed attempt before a router restarts it. */
+  resetFailedResponse(): void {
+    this.finalizedSegments = [];
+    this.openBuffer = '';
+    this.joinedDisplayCache = null;
+    this.elapsedMs = null;
+    this.teardownStage();
+    this.resetStreamPhaseHints();
+  }
+
+  /** Point the controller at the active assistant row. */
   setAssistantWrap(wrap: HTMLElement): void {
     this.assistantWrap = wrap;
     if (this.stageEl && !this.stageEl.isConnected) {

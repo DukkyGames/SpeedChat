@@ -185,6 +185,8 @@ export function syncModelOptionLoadUnloadButtonElement(btn: HTMLButtonElement): 
 
 /** Update every inline Load/Unload control in open model menus. */
 export function updateModelLoadUnloadButtons(): void {
+  // Deferred picker refreshes can finish after the UI has been torn down.
+  if (typeof document === 'undefined') return;
   for (const btn of document.querySelectorAll<HTMLButtonElement>(
     '.model-select-option-load-unload',
   )) {
@@ -444,10 +446,13 @@ export async function populateMultiProviderModelSelect(
 
   try {
     const { providers } = await listProviders();
+    const { loadRouterConfig, routerOptions } = await import('../models/routers');
+    const routerConfig = await loadRouterConfig().catch(() => null);
     const enabled = providers.filter((p) => p.enabled !== false);
 
     if (enabled.length === 0) {
       select.innerHTML = '<option value="">No providers configured</option>';
+      if (routerConfig) routerOptions(select, routerConfig);
       syncModelSelectPicker();
       return null;
     }
@@ -465,6 +470,7 @@ export async function populateMultiProviderModelSelect(
 
     if (totalModels === 0) {
       select.innerHTML = '<option value="">No models found</option>';
+      if (routerConfig) routerOptions(select, routerConfig);
       syncModelSelectPicker();
       return results;
     }
@@ -525,6 +531,10 @@ export async function populateMultiProviderModelSelect(
       select.value = '';
     }
 
+    if (routerConfig) {
+      routerOptions(select, routerConfig);
+      if (pid === 'minnow-router' && mid) select.value = encodeModelSelectKey(pid, mid);
+    }
     syncModelSelectPicker();
     return results;
   } catch (err) {
@@ -641,6 +651,9 @@ export async function fetchModels(): Promise<void> {
 
     if (enabled.length === 0) {
       sel.innerHTML = '<option value="">No providers configured</option>';
+      const { loadRouterConfig, routerOptions } = await import('../models/routers');
+      const routers = await loadRouterConfig().catch(() => null);
+      if (routers) routerOptions(sel, routers);
       syncModelSelectPicker();
       setStatus('err', 'No providers configured. Use Settings → Providers.');
       updateModelLoadUnloadButtons();

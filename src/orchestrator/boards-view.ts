@@ -1162,6 +1162,7 @@ function paintBoard(): void {
         },
         reopen: () => void commandRerun(),
         fixFinal: () => void commandRerun(),
+        resetTask: (taskId: string) => void commandResetTask(taskId),
       }),
     );
     pane.scrollTop = scrollTop;

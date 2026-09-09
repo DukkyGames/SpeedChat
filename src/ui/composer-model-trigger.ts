@@ -31,6 +31,7 @@ import {
 } from './preview-electron-visibility';
 
 import { iconHtml } from './icon';
+import { routerAssignmentLabel, getRouterConfigSync } from '../models/routers';
 
 const CHEVRON_SVG = iconHtml('chevronDown', { size: 10 });
 
@@ -291,6 +292,12 @@ function syncTrigger(trigger: ComposerModelTrigger): void {
     trigger.trigger.title = summary;
   } else {
     applyLogoSvg(trigger.logoEl, modelId);
+  }
+
+  if (decodeModelSelectKey(selectValue)?.providerId === 'minnow-router') {
+    const router = getRouterConfigSync().routers.find((r) => r.id === modelId);
+    const assignment = !isMenubarStyleVariant(trigger.variant) ? routerAssignmentLabel(getActiveChat()?.id || '', modelId) : '';
+    trigger.labelEl.textContent = `${router?.name || modelId} · Router${assignment ? ` → ${assignment}` : ''}`;
   }
 
   const hasSelectable =
@@ -908,6 +915,7 @@ export function unmountSuperPlanComposerModelTrigger(): void {
 
 /** Wire desktop + Code + Chat composer model triggers (idempotent). */
 export function initComposerModelTriggers(): void {
+  window.addEventListener('minnow-router-assignment', syncComposerModelTriggers);
   ensureGlobals();
   initChatModelSelectShortcut();
 
@@ -928,6 +936,7 @@ export function initComposerModelTriggers(): void {
 
 /** Close the app-wide activity stream (called on quit). */
 export function teardownComposerModelTriggers(): void {
+  window.removeEventListener('minnow-router-assignment', syncComposerModelTriggers);
   activityFeedUnsub?.();
   activityFeedUnsub = null;
 }

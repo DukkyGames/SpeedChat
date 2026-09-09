@@ -18,6 +18,8 @@ import {
 import { hasRunDebris } from '../../server/orchestrator/core/rewind.js';
 import type { TaskFileStat, LiveActivity } from './client';
 import { adaptAttemptTranscript, liveTailPhase, transcriptStructureKey } from './transcript-adapter';
+import { renderAttemptScan, resetAttemptWriteUps } from './attempt-report';
+import { humanizeAbandonReason } from './attempt-scan';
 import { el, empty, pill } from './dom';
 import { createIcon } from '../ui/icon';
 import { renderUnifiedPromptDiff } from '../ui/prompt-diff-unified';
@@ -26,7 +28,6 @@ import { appendTranscriptLiveTail, renderTranscriptView } from '../ui/transcript
 import type { SubAgentTranscriptLive } from '../ui/sub-agent-live-status';
 
 const ui = {
-  expandedSummaries: new Set<string>(),
   followThread: true,
   threadScrollTop: 0,
   specOpen: null as boolean | null,
@@ -43,7 +44,7 @@ export function resetTaskDetailLogUi(): void {
 
 export function resetTaskDetailUi(): void {
   resetTaskDetailLogUi();
-  ui.expandedSummaries.clear();
+  resetAttemptWriteUps();
   ui.expandedLiveThoughts.clear();
   ui.specOpen = null;
 }
@@ -333,7 +334,7 @@ function renderAlerts(task: TaskState): HTMLElement[] {
     add(
       'bad',
       'Abandoned',
-      task.abandonedReason === 'user' ? 'Stopped by hand.' : task.abandonedReason,
+      task.abandonedReason === 'user' ? 'Stopped by hand.' : humanizeAbandonReason(task.abandonedReason),
     );
   }
   if (task.skippedBy) {
@@ -641,7 +642,8 @@ function renderWorkRow(
   }
   item.appendChild(header);
 
-  if (attempt.summary) item.appendChild(renderSummary(attempt));
+  const scan = renderAttemptScan(attempt);
+  if (scan) item.appendChild(scan);
   return item;
 }
 
@@ -670,33 +672,6 @@ function renderRunningState(
   return wrap;
 }
 
-function renderSummary(attempt: Attempt): HTMLElement {
-  const wrap = el('div', 'ov2-work__summary-wrap');
-  const key = `summary:${attempt.attemptId}`;
-  const open = ui.expandedSummaries.has(key);
-  const text = attempt.summary ?? '';
-
-  const summary = el('p', 'ov2-work__summary', text);
-  if (open) summary.classList.add('is-expanded');
-  wrap.appendChild(summary);
-
-  if (text.length > 200) {
-    const more = el('button', 'ov2-work__more', open ? 'Show less' : 'Show all');
-    more.type = 'button';
-    more.setAttribute('aria-expanded', open ? 'true' : 'false');
-    more.dataset.focusKey = key;
-    more.addEventListener('click', () => {
-      const next = !ui.expandedSummaries.has(key);
-      if (next) ui.expandedSummaries.add(key);
-      else ui.expandedSummaries.delete(key);
-      summary.classList.toggle('is-expanded', next);
-      more.setAttribute('aria-expanded', next ? 'true' : 'false');
-      more.textContent = next ? 'Show less' : 'Show all';
-    });
-    wrap.appendChild(more);
-  }
-  return wrap;
-}
 
 // ── Thread ───────────────────────────────────────────────────────────────────
 

@@ -229,6 +229,7 @@ export function closeModels(options?: { skipNavigate?: boolean }): void {
   root.classList.remove('is-open');
   restoreReparentedSettingsSections();
   teardownServerSection();
+  void import('./models/cli-panel').then((module) => module.teardownCliPanel());
   teardownModelsStore();
 
   if (!isOsEmbedded()) {

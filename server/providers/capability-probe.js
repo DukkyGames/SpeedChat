@@ -10,6 +10,7 @@ import { validateProviderId } from './validate.js';
 import { generateText, streamText } from 'ai';
 import { buildAnthropicProvider } from '../generations/anthropic/provider-runtime.js';
 import { resolveModelApi } from '../generations/resolve-model-api.js';
+import { agentCliCapabilityPatchesWithConfig } from '../models/agent-cli-catalog.js';
 import { openAiMessagesToCoreMessages } from '../generations/anthropic/openai-to-core-messages.js';
 import { mapOpenAiToolChoice, mapOpenAiTools } from '../generations/anthropic/openai-tools.js';
 import { resolveOpenCodeZenUpstreamUrl } from './opencode-zen.js';
@@ -737,6 +738,20 @@ export async function runCapabilityProbe(providerId, options = {}) {
     throw new Error('Provider is disabled');
   }
 
+  if (runtime.profile.apiKind === 'agent-cli-v1') {
+    return mergeCapabilities(providerId, await agentCliCapabilityPatchesWithConfig(providerId), {
+      probedAt: new Date().toISOString(),
+      apiKind: 'agent-cli-v1',
+      providerFields: {
+        structuredOutput: false,
+        structuredOutputWithTools: false,
+        structuredOutputStreaming: false,
+        supportsThinkingBudget: false,
+        probeError: null,
+      },
+    });
+  }
+
   const modelsResponse = await proxyModels(providerId);
   const catalog = Array.isArray(modelsResponse.data) ? modelsResponse.data : [];
   const isLmStudio = runtime.profile.apiKind === 'lm-studio-v0';
@@ -874,6 +889,20 @@ export async function readProviderCapabilitiesFile(id) {
 export async function probeProviderCapabilities(id, options = {}) {
   validateProviderId(id);
   const runtime = await getProviderRuntime(id);
+
+  if (runtime.profile.apiKind === 'agent-cli-v1') {
+    return mergeCapabilities(id, await agentCliCapabilityPatchesWithConfig(id), {
+      probedAt: new Date().toISOString(),
+      apiKind: 'agent-cli-v1',
+      providerFields: {
+        structuredOutput: false,
+        structuredOutputWithTools: false,
+        structuredOutputStreaming: false,
+        supportsThinkingBudget: false,
+        probeError: null,
+      },
+    });
+  }
 
   const modelsResponse = await proxyModels(id);
   const catalog = Array.isArray(modelsResponse.data) ? modelsResponse.data : [];

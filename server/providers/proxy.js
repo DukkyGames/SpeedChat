@@ -22,6 +22,8 @@ import { enrichMlxLmModelsWithCachedContext } from '../models/mlx-context-length
 import { enrichLlamaCppModelsFromProps } from '../models/llama-cpp-modalities.js';
 import { MODEL_LOAD_TIMEOUT_MS } from '../models/timeouts.js';
 import { serveMatchesModelId } from '../models/admit-serve.js';
+import { detectAgentCli } from '../models/agent-cli-detect.js';
+import { listAgentCliModelsWithConfig } from '../models/agent-cli-catalog.js';
 import {
   findLiveLlamaCppServeForModel,
   getLastTtlEviction,
@@ -75,7 +77,20 @@ export async function proxyModels(id) {
   if (id === FAKE_PROVIDER_ID && !getFakeModelStatus().running) {
     return { data: [] };
   }
-  const { profile, headers, paths } = await getProviderRuntime(id);
+  const { profile, secrets, headers, paths } = await getProviderRuntime(id);
+  if (profile.apiKind === 'agent-cli-v1') {
+    const status = await detectAgentCli(profile.agentCli.kind, {
+      binPath: profile.agentCli.binPath,
+      cliToken: secrets?.cliToken,
+    });
+    if (!status.installed) {
+      return { data: [], unreachable: true, error: `${profile.label} is not installed` };
+    }
+    if (status.authStatus === 'signed-out') {
+      return { data: [], unreachable: true, error: `${profile.label} is signed out` };
+    }
+    return { data: await listAgentCliModelsWithConfig(id) };
+  }
   const modelsPath = normalizeOpenCodeZenRelativePath(profile.baseUrl, paths.modelsPath);
   const url = `${profile.baseUrl}${modelsPath}`;
   const controller = new AbortController();

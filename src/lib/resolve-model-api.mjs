@@ -3,9 +3,9 @@
  * Shared by server generations pump and client model catalog normalization.
  */
 
-/** @typedef {'lm-studio-v0' | 'openai-v1' | 'anthropic-v1'} ApiKind */
+/** @typedef {'lm-studio-v0' | 'openai-v1' | 'anthropic-v1' | 'agent-cli-v1'} ApiKind */
 
-const API_KINDS = new Set(['lm-studio-v0', 'openai-v1', 'anthropic-v1']);
+const API_KINDS = new Set(['lm-studio-v0', 'openai-v1', 'anthropic-v1', 'agent-cli-v1']);
 
 /**
  * @param {unknown} value

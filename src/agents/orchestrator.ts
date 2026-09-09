@@ -1,4 +1,5 @@
 import { findChatById, getActiveChat } from '../state/sessions';
+import { resolveChatSpawnCwd } from '../state/chat-worktree';
 import { getSubAgentExecutorContext } from '../tools/sub-agent-executor-context';
 import { getWorkspacePath } from '../state/workspace';
 import { getSubAgentTypeConfig } from './sub-agent-config';
@@ -443,7 +444,7 @@ function resolveParentChatId(input: SpawnSubAgentInput): string {
 function resolveSpawnCwd(parentChatId: string | null | undefined): string {
   if (parentChatId) {
     const chat = findChatById(parentChatId);
-    const fromChat = chat?.workspacePath?.trim();
+    const fromChat = resolveChatSpawnCwd(chat);
     if (fromChat) return fromChat;
   }
   return getWorkspacePath().trim();

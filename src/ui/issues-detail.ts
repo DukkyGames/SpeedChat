@@ -35,6 +35,8 @@ import {
 } from '../chat/issues/pipeline';
 import type { IssueBackgroundChatMode, IssueForegroundChatMode } from '../chat/issues/workflow-seeds';
 import { createIssuesWorkflowDropdown, closeIssuesWorkflowMenu } from './issues-workflow-menu';
+import { promptIssueChatRunTarget } from './issues-chat-run-target';
+import type { ChatRunTargetChoice } from '../state/chat-worktree';
 import {
   createBranchFromIssue,
   createPrFromIssue,
@@ -1728,8 +1730,13 @@ function buildWorkflowToolbar(issue: IssueCard): HTMLElement {
     label: getMode(modeId).label,
     hint: foregroundHints[modeId],
     disabled: !workflowOk || busy,
-    onSelect: () => {
-      void runWorkflowAction(issue.id, 'foreground', modeId);
+    onSelect: (ctx?: { trigger: HTMLButtonElement }) => {
+      promptIssueChatRunTarget({
+        issueId: issue.id,
+        anchor: ctx?.trigger,
+        onPick: (choice) =>
+          void runWorkflowAction(issue.id, 'foreground', modeId, choice),
+      });
     },
   }));
 
@@ -1757,8 +1764,13 @@ function buildWorkflowToolbar(issue: IssueCard): HTMLElement {
       !workflowOk ||
       busy ||
       (modeId === 'debug' && !canInvestigateIssue(issue)),
-    onSelect: () => {
-      void runWorkflowAction(issue.id, 'background', modeId);
+    onSelect: (ctx?: { trigger: HTMLButtonElement }) => {
+      promptIssueChatRunTarget({
+        issueId: issue.id,
+        anchor: ctx?.trigger,
+        onPick: (choice) =>
+          void runWorkflowAction(issue.id, 'background', modeId, choice),
+      });
     },
   }));
 
@@ -1781,13 +1793,22 @@ type WorkflowAction =
   | { kind: 'background'; modeId: IssueBackgroundChatMode }
   | { kind: 'board' };
 
-async function runWorkflowAction(issueId: string, action: WorkflowAction['kind'], modeId?: IssueForegroundChatMode | IssueBackgroundChatMode): Promise<void> {
+async function runWorkflowAction(
+  issueId: string,
+  action: WorkflowAction['kind'],
+  modeId?: IssueForegroundChatMode | IssueBackgroundChatMode,
+  runTarget?: ChatRunTargetChoice,
+): Promise<void> {
   if (workflowBusyIds.has(issueId)) return;
   workflowBusyIds.add(issueId);
   refreshIssueDetailIfOpen();
   try {
     if (action === 'foreground' && modeId) {
-      const result = await runIssueForegroundChat(issueId, modeId as IssueForegroundChatMode);
+      const result = await runIssueForegroundChat(
+        issueId,
+        modeId as IssueForegroundChatMode,
+        runTarget,
+      );
       if (!result.ok) {
         showIssuesToast(result.error || 'Send to chat failed', 'error');
         return;
@@ -1804,7 +1825,7 @@ async function runWorkflowAction(issueId: string, action: WorkflowAction['kind']
     }
     if (action === 'background' && modeId) {
       const bgMode = modeId as IssueBackgroundChatMode;
-      const result = await runIssueBackgroundChat(issueId, bgMode);
+      const result = await runIssueBackgroundChat(issueId, bgMode, runTarget);
       if (!result.ok) {
         showIssuesToast(result.error || 'Send to background failed', 'error');
         return;

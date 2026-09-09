@@ -3,20 +3,16 @@ import {
   branchesLockedToOtherWorktrees,
   filterUserFacingBranches,
   filterUserFacingWorktrees,
-  formatWorktreeOptionLabel,
-  getPrincipalWorktree,
   parseWorktreeListPorcelain,
-  worktreePathsEqual,
 } from '../lib/worktree-list-parse.ts';
 import {
-  attachChatToWorktree,
+  applyChatRunTargetChoice,
   chatTitleForGitRef,
   composerGitRepoRoot,
-  createManagedChatWorktree,
   formatComposerBranchLabel,
   formatComposerRunTargetLabel,
   isChatWorktreeMode,
-  setChatRunTargetLocal,
+  type ChatRunTargetChoice,
 } from '../state/chat-worktree.ts';
 import { gitBranches, gitCheckout } from '../state/git-api.ts';
 import { getActiveChat, isExpertChat, scheduleSaveSessions, touchChat } from '../state/sessions.ts';
@@ -27,8 +23,12 @@ import { isComposerRecoveryBlocked } from './composer-send.ts';
 import { createGitWorktreeIcon } from './git-worktree-icons.ts';
 import {
   closeGitPanelNamePopover,
-  openGitRefNamePopover,
 } from './git-panel-name-popover.ts';
+import {
+  closeRunTargetPicker,
+  fillRunTargetMenu,
+  positionRunTargetMenu,
+} from './composer-run-target-menu.ts';
 import {
   observeModeSelectorComposerSibling,
   refreshModeSelectorLayout,
@@ -78,6 +78,7 @@ function closeMenus(): void {
   runTargetMenu?.classList.add('hidden');
   branchMenu?.classList.add('hidden');
   detachGlobalListeners();
+  closeRunTargetPicker();
 }
 
 /** Close Local / branch menus (compact layout swap and overflow sheet). */
@@ -86,24 +87,7 @@ export function closeComposerRunTargetMenus(): void {
 }
 
 function positionMenu(anchor: HTMLElement, menu: HTMLElement): void {
-  const rect = anchor.getBoundingClientRect();
-  const margin = 8;
-  const gap = 4;
-  const menuHeight = menu.offsetHeight || menu.getBoundingClientRect().height;
-  const menuWidth = menu.offsetWidth || menu.getBoundingClientRect().width;
-
-  let top = rect.bottom + gap;
-  if (top + menuHeight > window.innerHeight - margin) {
-    top = Math.max(margin, rect.top - menuHeight - gap);
-  }
-
-  let left = rect.left;
-  if (left + menuWidth > window.innerWidth - margin) {
-    left = Math.max(margin, window.innerWidth - menuWidth - margin);
-  }
-
-  menu.style.top = `${top}px`;
-  menu.style.left = `${left}px`;
+  positionRunTargetMenu(anchor, menu);
 }
 
 function attachGlobalListeners(): void {
@@ -286,35 +270,14 @@ async function refreshGitPanelFromComposer(): Promise<void> {
   }
 }
 
-async function applyLocalTarget(): Promise<void> {
+async function applyChoice(choice: ChatRunTargetChoice): Promise<void> {
   const chat = getActiveChat();
   busy = true;
   refreshComposerRunTargetDisabled();
   try {
-    await setChatRunTargetLocal(chat);
-    touchChat(chat);
-    scheduleSaveSessions();
-    syncComposerRunTargetFromActiveChat();
-    await refreshGitPanelFromComposer();
-    setStatus('ok', 'Run target: Local');
-  } finally {
-    busy = false;
-    refreshComposerRunTargetDisabled();
-  }
-}
-
-async function applyNewWorktree(
-  branchName: string,
-  baseRef?: string,
-  checkoutExisting?: boolean,
-): Promise<void> {
-  const chat = getActiveChat();
-  busy = true;
-  refreshComposerRunTargetDisabled();
-  try {
-    const res = await createManagedChatWorktree(chat, branchName, baseRef, checkoutExisting);
+    const res = await applyChatRunTargetChoice(chat, choice);
     if (!res.ok) {
-      const msg = res.error ?? 'Could not create worktree';
+      const msg = res.error ?? 'Could not set run target';
       setStatus('error', msg);
       showToast(msg, 'error');
       return;
@@ -323,33 +286,20 @@ async function applyNewWorktree(
     scheduleSaveSessions();
     syncComposerRunTargetFromActiveChat();
     await refreshGitPanelFromComposer();
-    setStatus('ok', `Worktree: ${chat.gitBranch ?? branchName}`);
-    showToast(`Worktree: ${chat.gitBranch ?? branchName}`, 'success');
-  } finally {
-    busy = false;
-    refreshComposerRunTargetDisabled();
-  }
-}
-
-async function applyAttachWorktree(path: string, branch?: string): Promise<void> {
-  const chat = getActiveChat();
-  const repoRoot = composerGitRepoRoot();
-  if (repoRoot && worktreePathsEqual(path, repoRoot)) {
-    await applyLocalTarget();
-    return;
-  }
-  busy = true;
-  refreshComposerRunTargetDisabled();
-  try {
-    if (chat.chatWorktreeManaged) {
-      await setChatRunTargetLocal(chat);
+    if (choice.kind === 'local') {
+      setStatus('ok', 'Run target: Local');
+      return;
     }
-    attachChatToWorktree(chat, path, branch);
-    touchChat(chat);
-    scheduleSaveSessions();
-    syncComposerRunTargetFromActiveChat();
-    await refreshGitPanelFromComposer();
-    setStatus('ok', `Worktree: ${branch?.trim() || path.split(/[/\\]/).pop() || 'attached'}`);
+    const label =
+      chat.gitBranch?.trim() ||
+      (choice.kind === 'create'
+        ? choice.name
+        : choice.path.split(/[/\\]/).pop()) ||
+      'Worktree';
+    setStatus('ok', `Worktree: ${label}`);
+    if (choice.kind === 'create') {
+      showToast(`Worktree: ${label}`, 'success');
+    }
   } finally {
     busy = false;
     refreshComposerRunTargetDisabled();
@@ -379,109 +329,21 @@ async function applyBranchCheckout(branch: string): Promise<void> {
   }
 }
 
-function promptNewWorktreeBranch(anchor: HTMLElement): void {
+async function rebuildRunTargetMenu(): Promise<void> {
+  if (!runTargetMenu || !runTargetBtn) return;
   const chat = getActiveChat();
-  openGitRefNamePopover({
-    anchor,
-    title: 'New worktree',
-    kind: 'worktree',
-    cwd: composerGitRepoRoot(),
+  await fillRunTargetMenu({
+    menu: runTargetMenu,
+    repoRoot: composerGitRepoRoot(),
+    localDisabled: !isChatWorktreeMode(chat),
     defaultTitle: chatTitleForGitRef(chat),
     defaultPath: chat.workspacePath || composerGitRepoRoot(),
     reserved: [chat.gitBranch, 'main', 'master'],
-    onSubmit: async (result) => {
-      await applyNewWorktree(
-        result.name,
-        result.checkoutExisting ? undefined : result.startPoint,
-        result.checkoutExisting,
-      );
-    },
+    popoverAnchor: runTargetBtn,
+    closeMenu: closeMenus,
+    reopenMenu: reopenRunTargetMenu,
+    onPick: (choice) => applyChoice(choice),
   });
-}
-
-async function rebuildRunTargetMenu(): Promise<void> {
-  if (!runTargetMenu) return;
-  runTargetMenu.replaceChildren();
-
-  const chat = getActiveChat();
-  const repoRoot = composerGitRepoRoot();
-  const list = await listWorktrees();
-  const parsed =
-    list.ok && list.output ? parseWorktreeListPorcelain(list.output) : [];
-  const principal = getPrincipalWorktree(parsed);
-  const inWorktree = isChatWorktreeMode(chat);
-
-  const runOn = menuSection('Run on');
-  const localItem = menuItem('This PC', () => applyLocalTarget(), {
-    icon: 'local',
-    disabled: !inWorktree,
-  });
-  runOn.appendChild(localItem);
-
-  if (
-    principal?.path &&
-    repoRoot &&
-    !worktreePathsEqual(principal.path, repoRoot)
-  ) {
-    const principalLabel = principal.branch?.trim()
-      ? `${principal.branch} (main worktree)`
-      : 'Main worktree';
-    runOn.appendChild(
-      menuItem(
-        principalLabel,
-        () => applyAttachWorktree(principal.path, principal.branch),
-        { icon: 'worktree' },
-      ),
-    );
-  }
-  runTargetMenu.appendChild(runOn);
-
-  const wtSection = menuSection('Worktree');
-  const attachItem = menuItem('Worktree…', async () => {
-    if (!list.ok || !list.output) {
-      const msg = list.error ?? 'Could not list worktrees';
-      setStatus('error', msg);
-      showToast(msg, 'error');
-      return;
-    }
-    const entries = filterUserFacingWorktrees(parsed, repoRoot).filter(
-      (wt) => !worktreePathsEqual(wt.path, repoRoot),
-    );
-    if (!entries.length) {
-      const msg = 'No extra worktrees found';
-      setStatus('error', msg);
-      showToast(msg, 'error');
-      return;
-    }
-    if (!runTargetMenu) return;
-    runTargetMenu.replaceChildren();
-    const back = menuItem(
-      '← Back',
-      () => {
-        void rebuildRunTargetMenu().then(() => reopenRunTargetMenu());
-      },
-      { keepOpen: true },
-    );
-    runTargetMenu.appendChild(back);
-    for (const wt of entries) {
-      const label = formatWorktreeOptionLabel(wt, repoRoot, {
-        principalPath: principal?.path,
-      });
-      runTargetMenu.appendChild(
-        menuItem(label, () => applyAttachWorktree(wt.path, wt.branch), {
-          icon: 'worktree',
-        }),
-      );
-    }
-    reopenRunTargetMenu();
-  }, { icon: 'worktree', keepOpen: true });
-
-  const newItem = menuItem('New worktree', () => {
-    if (runTargetBtn) promptNewWorktreeBranch(runTargetBtn);
-  }, { icon: 'worktree' });
-
-  wtSection.append(attachItem, newItem);
-  runTargetMenu.appendChild(wtSection);
 }
 
 async function rebuildBranchMenu(): Promise<void> {

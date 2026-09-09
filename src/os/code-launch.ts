@@ -5,6 +5,8 @@
 import { DEFAULT_MODE_ID, normalizeModeId } from '../chat/modes/types';
 import { sendMessageWithTools } from '../chat/messaging';
 import { normalizeWorkspacePath } from '../lib/normalize-workspace-path';
+import { applyChatRunTargetChoice, parseChatRunTargetChoice } from '../state/chat-worktree';
+import { findChatById, scheduleSaveSessions, touchChat } from '../state/sessions';
 import { getWorkspacePath, isCurrentWindowWorkspace } from '../state/workspace';
 import { clearForegroundSeed } from './instances';
 import type { LaunchOptions } from './types';
@@ -109,7 +111,7 @@ export async function restoreCodeSessionOnForeground(): Promise<void> {
 export async function applyCodeLaunchOptions(
   options: LaunchOptions,
   onChatCreated?: (chatId: string) => void,
-): Promise<{ chatId?: string }> {
+): Promise<{ chatId?: string; error?: string }> {
   const seed = options.seed?.trim();
   const shouldSend = options.autoRun === true && Boolean(seed);
 
@@ -145,6 +147,25 @@ export async function applyCodeLaunchOptions(
   const created = createChatWithMode({ modeId });
   if (!created.ok || !seed) return {};
   if (created.chatId) onChatCreated?.(created.chatId);
+
+  const runTarget = parseChatRunTargetChoice(options.runTarget);
+  if (runTarget && created.chatId) {
+    const chat = findChatById(created.chatId);
+    if (chat) {
+      const applied = await applyChatRunTargetChoice(chat, runTarget);
+      if (!applied.ok) {
+        return { chatId: created.chatId, error: applied.error ?? 'Could not set run target' };
+      }
+      touchChat(chat);
+      scheduleSaveSessions();
+      try {
+        const { syncComposerRunTargetFromActiveChat } = await import('../ui/composer-run-target');
+        syncComposerRunTargetFromActiveChat();
+        await syncCodeFileTreeChrome();
+      } catch {
+      }
+    }
+  }
 
   const { addCodeReferenceToComposer } = await import('../attachments/code-ref');
   for (const ref of options.codeRefs ?? []) {

@@ -15,6 +15,7 @@ export type AppId =
 export type OsView = 'workspaces' | 'app';
 
 import type { ModeId } from '../chat/modes/types';
+import type { ChatRunTargetChoice } from '../state/chat-worktree';
 
 /** One running app instance (may share an appId with other closed/reopened windows). */
 export interface AppInstance {
@@ -58,6 +59,11 @@ export interface LaunchOptions {
   }>;
   /** Research: start a run immediately when a seed is present. */
   autoRun?: boolean;
+  /**
+   * Code app: apply this run target after the seeded chat is created and
+   * before auto-send (Issues Send to chat).
+   */
+  runTarget?: ChatRunTargetChoice;
   /** Code app: switch to this chat after launch (notification deep-link). */
   chatId?: string;
   /** Code app section: chat workspace or a view-bar stage destination. */

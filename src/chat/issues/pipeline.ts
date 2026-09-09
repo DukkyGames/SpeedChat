@@ -12,7 +12,11 @@ import {
   requireIssueStatusForRole,
   updateIssue,
 } from '../../state/issues-store.ts';
-import { findChatById } from '../../state/sessions.ts';
+import { findChatById, scheduleSaveSessions, touchChat } from '../../state/sessions.ts';
+import {
+  applyChatRunTargetChoice,
+  type ChatRunTargetChoice,
+} from '../../state/chat-worktree.ts';
 import { routeCodeWindowCommand } from '../../os/code-window-command.ts';
 import type { Chat, IssueCard } from '../../types.ts';
 import { isTriageStatus } from '../../issues/taxonomy.ts';
@@ -54,6 +58,7 @@ export {
   resolveIssuePlanPath,
 } from './workflow-seeds.ts';
 export type { IssueActivityTarget } from './workflow-seeds.ts';
+export type { ChatRunTargetChoice } from '../../state/chat-worktree.ts';
 
 /** Stable background-chat key for an issue's workflow runs (one chat per issue). */
 function issueBackgroundChatKey(issue: IssueCard): string {
@@ -174,6 +179,19 @@ function ensureIssueWorkflowChat(issue: IssueCard, namePrefix: string): Chat | n
   return chat;
 }
 
+/** Attach the chosen run target to a workflow chat before a sub-agent spawn. */
+async function applyIssueWorkflowRunTarget(
+  chat: Chat,
+  runTarget?: ChatRunTargetChoice,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!runTarget) return { ok: true };
+  const applied = await applyChatRunTargetChoice(chat, runTarget);
+  if (!applied.ok) return applied;
+  touchChat(chat);
+  scheduleSaveSessions();
+  return { ok: true };
+}
+
 /** Foreground Code (no seed) then apply seeded launch; returns new chat id when created. */
 async function launchCodeSeededChat(options: {
   issueId?: string;
@@ -181,7 +199,8 @@ async function launchCodeSeededChat(options: {
   seed: string;
   workspacePath?: string;
   codeRefs?: ReturnType<typeof issueCodeRefsToLaunch>;
-}): Promise<{ chatId?: string }> {
+  runTarget?: ChatRunTargetChoice;
+}): Promise<{ chatId?: string; error?: string }> {
   if (await routeCodeWindowCommand({ kind: 'seed', ...options, workspacePath: options.workspacePath || '' })) return {};
   const { ensureCodeWorkspaceModules } = await import('../../boot/code-workspace-modules.ts');
   await ensureCodeWorkspaceModules();
@@ -200,6 +219,7 @@ async function launchCodeSeededChat(options: {
     autoRun: true,
     workspacePath: options.workspacePath,
     codeRefs: options.codeRefs,
+    runTarget: options.runTarget,
   });
 }
 
@@ -208,6 +228,7 @@ async function launchCodeSeededChat(options: {
  */
 export async function runIssueInvestigate(
   issueId: string,
+  runTarget?: ChatRunTargetChoice,
 ): Promise<{ ok: boolean; error?: string; chatId?: string }> {
   const issue = findIssueById(issueId);
   if (!issue) return { ok: false, error: 'Issue not found' };
@@ -217,6 +238,9 @@ export async function runIssueInvestigate(
 
   const chat = ensureIssueWorkflowChat(issue, 'Investigate');
   if (!chat) return { ok: false, error: 'Could not create investigation chat' };
+
+  const attached = await applyIssueWorkflowRunTarget(chat, runTarget);
+  if (!attached.ok) return { ok: false, error: attached.error, chatId: chat.id };
 
   updateIssue(issueId, { status: requireIssueStatusForRole('in_progress') });
   appendIssueLinks(issueId, { chatId: chat.id });
@@ -265,6 +289,7 @@ export async function runIssueInvestigate(
 
 export async function runIssuePlanChat(
   issueId: string,
+  runTarget?: ChatRunTargetChoice,
 ): Promise<{ ok: boolean; error?: string; chatId?: string; planPath?: string }> {
   const issue = findIssueById(issueId);
   if (!issue) return { ok: false, error: 'Issue not found' };
@@ -279,15 +304,19 @@ export async function runIssuePlanChat(
   updateIssue(issueId, { planPath, status: requireIssueStatusForRole('planned') });
 
   try {
-    const { chatId } = await launchCodeSeededChat({
+    const launched = await launchCodeSeededChat({
       issueId,
       modeId: 'plan',
       seed,
       workspacePath: issue.workspacePath,
       codeRefs,
+      runTarget,
     });
-    if (chatId) appendIssueLinks(issueId, { chatId });
-    return { ok: true, chatId, planPath };
+    if (launched.chatId) appendIssueLinks(issueId, { chatId: launched.chatId });
+    if (launched.error) {
+      return { ok: false, error: launched.error, chatId: launched.chatId, planPath };
+    }
+    return { ok: true, chatId: launched.chatId, planPath };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message, planPath };
@@ -299,6 +328,7 @@ export async function runIssuePlanChat(
  */
 export async function runIssuePlanBackground(
   issueId: string,
+  runTarget?: ChatRunTargetChoice,
 ): Promise<{ ok: boolean; planPath?: string; error?: string }> {
   const issue = findIssueById(issueId);
   if (!issue) return { ok: false, error: 'Issue not found' };
@@ -308,6 +338,9 @@ export async function runIssuePlanBackground(
 
   const chat = ensureIssueWorkflowChat(issue, 'Plan');
   if (!chat) return { ok: false, error: 'Could not create planning chat' };
+
+  const attached = await applyIssueWorkflowRunTarget(chat, runTarget);
+  if (!attached.ok) return { ok: false, error: attached.error };
 
   const planPath = resolveIssuePlanPath(issue);
 
@@ -364,8 +397,9 @@ export async function runIssuePlanBackground(
  */
 export async function runIssueDebugChat(
   issueId: string,
+  runTarget?: ChatRunTargetChoice,
 ): Promise<{ ok: boolean; error?: string; chatId?: string }> {
-  return runIssueForegroundChat(issueId, 'debug');
+  return runIssueForegroundChat(issueId, 'debug', runTarget);
 }
 
 /**
@@ -374,6 +408,7 @@ export async function runIssueDebugChat(
 export async function runIssueForegroundChat(
   issueId: string,
   modeId: IssueForegroundChatMode,
+  runTarget?: ChatRunTargetChoice,
 ): Promise<{ ok: boolean; error?: string; chatId?: string; planPath?: string }> {
   const issue = findIssueById(issueId);
   if (!issue) return { ok: false, error: 'Issue not found' };
@@ -382,7 +417,7 @@ export async function runIssueForegroundChat(
   }
 
   if (modeId === 'plan') {
-    return runIssuePlanChat(issueId);
+    return runIssuePlanChat(issueId, runTarget);
   }
 
   const seed = buildIssueForegroundModeSeed(issue, modeId);
@@ -391,15 +426,19 @@ export async function runIssueForegroundChat(
   updateIssue(issueId, { status: requireIssueStatusForRole('in_progress') });
 
   try {
-    const { chatId } = await launchCodeSeededChat({
+    const launched = await launchCodeSeededChat({
       issueId,
       modeId,
       seed,
       workspacePath: issue.workspacePath,
       codeRefs,
+      runTarget,
     });
-    if (chatId) appendIssueLinks(issueId, { chatId });
-    return { ok: true, chatId };
+    if (launched.chatId) appendIssueLinks(issueId, { chatId: launched.chatId });
+    if (launched.error) {
+      return { ok: false, error: launched.error, chatId: launched.chatId };
+    }
+    return { ok: true, chatId: launched.chatId };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return { ok: false, error: message };
@@ -412,9 +451,10 @@ export async function runIssueForegroundChat(
 export async function runIssueBackgroundChat(
   issueId: string,
   modeId: IssueBackgroundChatMode,
+  runTarget?: ChatRunTargetChoice,
 ): Promise<{ ok: boolean; error?: string; chatId?: string; planPath?: string }> {
-  if (modeId === 'debug') return runIssueInvestigate(issueId);
-  return runIssuePlanBackground(issueId);
+  if (modeId === 'debug') return runIssueInvestigate(issueId, runTarget);
+  return runIssuePlanBackground(issueId, runTarget);
 }
 
 // ── Board ────────────────────────────────────────────────────────────────────

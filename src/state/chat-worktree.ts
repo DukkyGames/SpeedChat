@@ -202,3 +202,93 @@ export async function cleanupChatWorktreeOnDelete(chat: Chat): Promise<void> {
 export function composerGitRepoRoot(): string {
   return getWorkspacePath().trim();
 }
+
+/**
+ * Serializable run-target pick from the composer menu or Issues Send to chat.
+ * `create` matches the New worktree name popover payload.
+ */
+export type ChatRunTargetChoice =
+  | { kind: 'local' }
+  | { kind: 'attach'; path: string; branch?: string }
+  | {
+      kind: 'create';
+      name: string;
+      startPoint: string;
+      checkoutExisting: boolean;
+    };
+
+/** Parse a JSON-safe run-target payload (IPC / launch options). */
+export function parseChatRunTargetChoice(value: unknown): ChatRunTargetChoice | null {
+  if (!value || typeof value !== 'object') return null;
+  const rec = value as Record<string, unknown>;
+  if (rec.kind === 'local') return { kind: 'local' };
+  if (rec.kind === 'attach' && typeof rec.path === 'string' && rec.path.trim()) {
+    const branch = typeof rec.branch === 'string' ? rec.branch.trim() : '';
+    return {
+      kind: 'attach',
+      path: rec.path.trim(),
+      ...(branch ? { branch } : {}),
+    };
+  }
+  if (rec.kind === 'create' && typeof rec.name === 'string' && rec.name.trim()) {
+    const startPoint =
+      typeof rec.startPoint === 'string' && rec.startPoint.trim()
+        ? rec.startPoint.trim()
+        : 'HEAD';
+    return {
+      kind: 'create',
+      name: rec.name.trim(),
+      startPoint,
+      checkoutExisting: rec.checkoutExisting === true,
+    };
+  }
+  return null;
+}
+
+/**
+ * Apply a run-target pick to an existing chat before tools or a seed turn run.
+ * Attach of the principal checkout collapses to Local (MIN-780).
+ */
+export async function applyChatRunTargetChoice(
+  chat: Chat,
+  choice: ChatRunTargetChoice,
+): Promise<{ ok: boolean; error?: string }> {
+  if (choice.kind === 'local') {
+    await setChatRunTargetLocal(chat);
+    return { ok: true };
+  }
+
+  if (choice.kind === 'attach') {
+    const repoRoot = composerGitRepoRoot();
+    if (repoRoot && worktreePathsEqual(choice.path, repoRoot)) {
+      await setChatRunTargetLocal(chat);
+      return { ok: true };
+    }
+    if (chat.chatWorktreeManaged) {
+      await setChatRunTargetLocal(chat);
+    }
+    attachChatToWorktree(chat, choice.path, choice.branch);
+    return { ok: true };
+  }
+
+  return createManagedChatWorktree(
+    chat,
+    choice.name,
+    choice.checkoutExisting ? undefined : choice.startPoint,
+    choice.checkoutExisting,
+  );
+}
+
+/**
+ * Sub-agent spawn cwd: isolated worktree when the parent chat has one,
+ * otherwise the chat's bound workspace.
+ */
+export function resolveChatSpawnCwd(
+  chat: Pick<Chat, 'worktreeRoot' | 'boardGroupId' | 'workspacePath'> | undefined,
+): string | undefined {
+  if (!chat) return undefined;
+  const fromWorktree = resolveChatToolWorkspaceRoot(chat);
+  if (fromWorktree) return fromWorktree;
+  const fromChat = chat.workspacePath?.trim();
+  return fromChat || undefined;
+}

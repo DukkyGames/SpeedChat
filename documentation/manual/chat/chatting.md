@@ -7,6 +7,7 @@ The basics of chat take one minute. The controls on this page are the ones that 
 | Control | What it does |
 |---------|--------------|
 | **Mode strip** | General / Build / Plan / Debug — see [Modes](../concepts/modes.md) |
+| **Run target** | This PC (main workspace) or a git worktree for this chat |
 | **Attach** | Files onto the conversation, 10 MB each |
 | **Tools** | Off/Ask/Full for every tool, plus web-search provider and result cache |
 | **Microphone** | Dictation — see [Voice](../extend/voice.md) |

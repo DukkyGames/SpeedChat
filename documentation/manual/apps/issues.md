@@ -41,8 +41,8 @@ This is what the app is for.
 |--------|--------------|
 | **Expand** | Sparkles on peek, board cards, the row menu, or **E**. Rewrites the title and description and suggests labels and priority from what is already on the card. You review and edit in an overlay; nothing is saved until you apply. Uses the prompt expander model when one is set. |
 | **Expand with agent** | An agent researches the workspace and fills in a real description (triage notes), from the detail panel or the row menu |
-| **Send to chat** | Opens a chat seeded with the issue, in a mode you choose |
-| **Send to background** | Runs it as a background sub-agent instead of taking over your screen |
+| **Send to chat** | Opens a chat seeded with the issue, in a mode you choose, then the same run-target panel as the composer: This PC, an existing worktree, or New worktree |
+| **Send to background** | Runs it as a background sub-agent instead of taking over your screen. Same worktree choice as Send to chat |
 | **Send to board** | When the issue has a plan, hands it to an orchestrate board |
 | **Open plan** | Opens the issue's plan document in the editor |
 

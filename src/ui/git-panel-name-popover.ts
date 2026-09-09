@@ -57,6 +57,8 @@ export interface GitRefNamePopoverOptions {
   /** Test/override lists so the extra row does not need a network round-trip. */
   branchLists?: GitRefBranchLists;
   onSubmit: (result: GitRefCreateResult) => void | Promise<void>;
+  /** Fires when the popover closes without a successful submit (Cancel, Escape, outside). */
+  onDismiss?: () => void;
 }
 
 let popoverEl: HTMLDivElement | null = null;
@@ -64,6 +66,8 @@ let anchorEl: HTMLElement | null = null;
 let inputEl: HTMLInputElement | null = null;
 let open = false;
 let loadGeneration = 0;
+let submitted = false;
+let onDismissCb: (() => void) | null = null;
 let outsidePointerHandler: ((e: PointerEvent) => void) | null = null;
 let escapeHandler: ((e: KeyboardEvent) => void) | null = null;
 
@@ -83,7 +87,11 @@ function detachGlobalListeners(): void {
 /** Close the git panel name popover if open. */
 export function closeGitPanelNamePopover(): void {
   if (!open) return;
+  const dismiss = onDismissCb;
+  const wasSubmitted = submitted;
   open = false;
+  submitted = false;
+  onDismissCb = null;
   loadGeneration += 1;
   detachGlobalListeners();
   anchorEl?.setAttribute('aria-expanded', 'false');
@@ -91,6 +99,7 @@ export function closeGitPanelNamePopover(): void {
   inputEl = null;
   popoverEl?.remove();
   popoverEl = null;
+  if (!wasSubmitted) dismiss?.();
 }
 
 /** Whether the name popover is visible. */
@@ -337,6 +346,7 @@ export function openGitPanelNamePopover(options: GitPanelNamePopoverOptions): vo
       input.focus();
       return;
     }
+    submitted = true;
     closeGitPanelNamePopover();
     await options.onSubmit(name);
   };
@@ -476,6 +486,8 @@ export function openGitRefNamePopover(options: GitRefNamePopoverOptions): void {
   inputEl = input;
   anchorEl = options.anchor;
   open = true;
+  submitted = false;
+  onDismissCb = options.onDismiss ?? null;
   loadGeneration += 1;
   const generation = loadGeneration;
   anchorEl.setAttribute('aria-expanded', 'true');
@@ -522,6 +534,7 @@ export function openGitRefNamePopover(options: GitRefNamePopoverOptions): void {
         select.focus();
         return;
       }
+      submitted = true;
       closeGitPanelNamePopover();
       await options.onSubmit({ name, startPoint: name, checkoutExisting: true });
       return;
@@ -531,6 +544,7 @@ export function openGitRefNamePopover(options: GitRefNamePopoverOptions): void {
       input.focus();
       return;
     }
+    submitted = true;
     closeGitPanelNamePopover();
     await options.onSubmit({ name, startPoint, checkoutExisting: false });
   };

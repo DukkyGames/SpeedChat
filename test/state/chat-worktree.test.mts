@@ -9,6 +9,9 @@ import {
   formatComposerRunTargetLabel,
   isChatWorktreeMode,
   isManagedChatWorktreePath,
+  parseChatRunTargetChoice,
+  applyChatRunTargetChoice,
+  resolveChatSpawnCwd,
   suggestChatWorktreeBranchName,
 } from '../../src/state/chat-worktree.ts';
 import { setWorkspaceFromServer } from '../../src/state/workspace.ts';
@@ -67,5 +70,58 @@ describe('chat-worktree helpers', () => {
       ),
       'minnow',
     );
+  });
+
+  test('parseChatRunTargetChoice accepts local, attach, and create payloads', () => {
+    assert.deepEqual(parseChatRunTargetChoice({ kind: 'local' }), { kind: 'local' });
+    assert.deepEqual(
+      parseChatRunTargetChoice({ kind: 'attach', path: '/wt', branch: 'feat' }),
+      { kind: 'attach', path: '/wt', branch: 'feat' },
+    );
+    assert.deepEqual(
+      parseChatRunTargetChoice({
+        kind: 'create',
+        name: 'fix-login',
+        startPoint: 'main',
+        checkoutExisting: false,
+      }),
+      {
+        kind: 'create',
+        name: 'fix-login',
+        startPoint: 'main',
+        checkoutExisting: false,
+      },
+    );
+    assert.equal(parseChatRunTargetChoice({ kind: 'attach', path: '  ' }), null);
+    assert.equal(parseChatRunTargetChoice({ kind: 'nope' }), null);
+  });
+
+  test('applyChatRunTargetChoice attach stamps worktreeRoot before tools run', async () => {
+    setWorkspaceFromServer({ path: '/repo/main', label: 'main', isDefault: false });
+    const chat = { id: 'chat-1', worktreeRoot: undefined as string | undefined, gitBranch: 'main' };
+    const res = await applyChatRunTargetChoice(chat as never, {
+      kind: 'attach',
+      path: '/repo/feature-wt',
+      branch: 'feat/login',
+    });
+    assert.equal(res.ok, true);
+    assert.equal(isChatWorktreeMode(chat), true);
+    assert.equal(chat.gitBranch, 'feat/login');
+  });
+
+  test('resolveChatSpawnCwd prefers the chat worktree over workspacePath', () => {
+    setWorkspaceFromServer({ path: '/repo/main', label: 'main', isDefault: false });
+    assert.equal(
+      resolveChatSpawnCwd({
+        worktreeRoot: '/repo/wt',
+        workspacePath: '/repo/main',
+      }),
+      '/repo/wt',
+    );
+    assert.equal(
+      resolveChatSpawnCwd({ workspacePath: '/repo/main' }),
+      '/repo/main',
+    );
+    assert.equal(resolveChatSpawnCwd(undefined), undefined);
   });
 });

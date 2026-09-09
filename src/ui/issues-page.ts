@@ -13,6 +13,12 @@ import {
   runIssueBackgroundChat,
   runIssueForegroundChat,
 } from '../chat/issues/pipeline';
+import type { ChatRunTargetChoice } from '../state/chat-worktree';
+import {
+  lastIssueMenuOrigin,
+  promptIssueChatRunTarget,
+  rememberIssueMenuAnchor,
+} from './issues-chat-run-target';
 import type {
   IssueBackgroundChatMode,
   IssueForegroundChatMode,
@@ -789,13 +795,18 @@ async function runIssueWorkflowFromMenu(
   issueId: string,
   action: 'foreground' | 'background',
   modeId: IssueForegroundChatMode | IssueBackgroundChatMode,
+  runTarget: ChatRunTargetChoice,
 ): Promise<void> {
   if (workflowBusyIds.has(issueId)) return;
   workflowBusyIds.add(issueId);
   const { showToast } = await import('./toast');
   try {
     if (action === 'foreground') {
-      const result = await runIssueForegroundChat(issueId, modeId as IssueForegroundChatMode);
+      const result = await runIssueForegroundChat(
+        issueId,
+        modeId as IssueForegroundChatMode,
+        runTarget,
+      );
       if (!result.ok) {
         showToast(result.error || 'Send to chat failed', 'error');
         return;
@@ -811,7 +822,7 @@ async function runIssueWorkflowFromMenu(
       return;
     }
     const bgMode = modeId as IssueBackgroundChatMode;
-    const result = await runIssueBackgroundChat(issueId, bgMode);
+    const result = await runIssueBackgroundChat(issueId, bgMode, runTarget);
     if (!result.ok) {
       showToast(result.error || 'Send to background failed', 'error');
       return;
@@ -836,7 +847,17 @@ function buildForegroundChatSubmenuItems(issue: IssueCard): IssuesContextMenuIte
     label: getMode(modeId).label,
     hint: FOREGROUND_CHAT_HINTS[modeId],
     disabled: !workflowOk || busy,
-    onSelect: () => void runIssueWorkflowFromMenu(issue.id, 'foreground', modeId),
+    onSelect: () => {
+      const origin = lastIssueMenuOrigin();
+      promptIssueChatRunTarget({
+        issueId: issue.id,
+        anchor: origin.anchor,
+        clientX: origin.clientX,
+        clientY: origin.clientY,
+        onPick: (choice) =>
+          void runIssueWorkflowFromMenu(issue.id, 'foreground', modeId, choice),
+      });
+    },
   }));
 }
 
@@ -851,7 +872,17 @@ function buildBackgroundChatSubmenuItems(issue: IssueCard): IssuesContextMenuIte
       !workflowOk ||
       busy ||
       (modeId === 'debug' && !canInvestigateIssue(issue)),
-    onSelect: () => void runIssueWorkflowFromMenu(issue.id, 'background', modeId),
+    onSelect: () => {
+      const origin = lastIssueMenuOrigin();
+      promptIssueChatRunTarget({
+        issueId: issue.id,
+        anchor: origin.anchor,
+        clientX: origin.clientX,
+        clientY: origin.clientY,
+        onPick: (choice) =>
+          void runIssueWorkflowFromMenu(issue.id, 'background', modeId, choice),
+      });
+    },
   }));
 }
 
@@ -965,6 +996,7 @@ function openIssueRowMenu(
   clientY: number,
   restoreFocus: HTMLElement,
 ): void {
+  rememberIssueMenuAnchor(clientX, clientY, restoreFocus);
   const targetIds = resolveIssueActionTargetIds(issue.id);
   openIssuesContextMenu({
     clientX,

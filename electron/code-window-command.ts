@@ -12,4 +12,9 @@ export interface CodeWindowCommand {
   boardGroupId?: string;
   runId?: string;
   codeRefs?: Array<{ path: string; startLine?: number; endLine?: number; text?: string }>;
+  /** Apply after the seeded chat is created, before auto-send. */
+  runTarget?:
+    | { kind: 'local' }
+    | { kind: 'attach'; path: string; branch?: string }
+    | { kind: 'create'; name: string; startPoint: string; checkoutExisting: boolean };
 }

@@ -3,9 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { runProcess } from '../process-runner.js';
 import {
-  applyAgentNodeEnv,
+  applyAgentCliCaptureEnv,
   findAgentCliOnPath,
   resolveAgentCliBin,
+  stripAnsiFromCliText,
 } from '../generations/agent-cli/resolve-bin.js';
 import {
   CLAUDE_CODE_CLI_ID,
@@ -134,7 +135,7 @@ const cursorListInflight = new Map();
 export function parseCursorListModels(text) {
   const rows = [];
   const seen = new Set();
-  for (const raw of String(text || '').split(/\r?\n/)) {
+  for (const raw of stripAnsiFromCliText(text).split(/\r?\n/)) {
     const line = raw.trim();
     if (!line || /^available models$/i.test(line)) continue;
     const match = CURSOR_LIST_LINE.exec(line);
@@ -180,7 +181,7 @@ async function fetchCursorListModelsText(options = {}) {
     } catch {
       return '';
     }
-    const runEnv = { ...applyAgentNodeEnv(env, resolved.command) };
+    const runEnv = applyAgentCliCaptureEnv(env, resolved.command);
     const cliToken = typeof options.cliToken === 'string' ? options.cliToken.trim() : '';
     if (cliToken) runEnv.CURSOR_API_KEY = cliToken;
     try {
@@ -189,7 +190,11 @@ async function fetchCursorListModelsText(options = {}) {
         [...resolved.argsPrefix, '--list-models'],
         { timeout: CURSOR_LIST_MODELS_TIMEOUT_MS, env: runEnv },
       );
-      const text = result.code === 0 ? String(result.stdout || '') : '';
+      const stdout = stripAnsiFromCliText(result.stdout);
+      const stderr = stripAnsiFromCliText(result.stderr);
+      const text = result.code === 0
+        ? (stdout || stderr)
+        : (parseCursorListModels(stdout).length > 0 ? stdout : '');
       if (text) cursorListCache.set(cacheKey, { at: Date.now(), text });
       return text;
     } catch {

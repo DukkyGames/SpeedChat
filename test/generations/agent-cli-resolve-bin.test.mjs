@@ -4,10 +4,12 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
+  applyAgentCliCaptureEnv,
   cursorAgentVersionSortKey,
   findAgentCliOnPath,
   resolveAgentCliBin,
   resolveWindowsCmdShim,
+  stripAnsiFromCliText,
   wellKnownAgentCliPaths,
 } from '../../server/generations/agent-cli/resolve-bin.js';
 
@@ -126,4 +128,11 @@ test('Cursor discovery uses the vendor install dir when PATH misses it', async (
     env: { LOCALAPPDATA: local, APPDATA: path.join(homeDir, 'AppData', 'Roaming') },
   });
   assert.equal(found, expected);
+});
+
+test('capture env disables inherited FORCE_COLOR and stripAnsi removes CSI', () => {
+  const env = applyAgentCliCaptureEnv({ FORCE_COLOR: '1', PATH: '/bin' }, process.execPath);
+  assert.equal(env.FORCE_COLOR, '0');
+  assert.equal(env.NO_COLOR, undefined);
+  assert.equal(stripAnsiFromCliText('\u001B[32mauto\u001B[0m - Auto'), 'auto - Auto');
 });

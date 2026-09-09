@@ -169,6 +169,23 @@ describe('agent CLI provider seam and static catalog', () => {
     assert.equal(rows[2].max_context_length, 1_000_000);
   });
 
+  test('parses FORCE_COLOR ANSI-wrapped --list-models lines', () => {
+    const rows = parseCursorListModels([
+      '\u001B[1mAvailable models\u001B[0m',
+      '\u001B[32mauto\u001B[0m - Auto (default)',
+      '\u001B[36mcomposer-2.5\u001B[0m - Composer 2.5',
+    ].join('\n'));
+    assert.deepEqual(rows.map((row) => row.id), ['auto', 'composer-2.5']);
+  });
+
+  test('falls back to the static Cursor catalog when --list-models is empty', async () => {
+    const rows = await listAgentCliModelsWithConfig('cursor-agent-cli', { listModelsText: '' });
+    const ids = rows.map((row) => row.id);
+    assert.ok(ids.includes('auto'));
+    assert.ok(ids.includes('composer-2.5'));
+    assert.ok(ids.length > 1);
+  });
+
   test('enriches Cursor from --list-models text without an inference probe', async () => {
     const rows = await listAgentCliModelsWithConfig('cursor-agent-cli', {
       listModelsText: 'Available models\n\nauto - Auto (default)\ncomposer-2.5 - Composer 2.5\n',

@@ -58,6 +58,7 @@ CLI protocols evolve independently of Minnow. Fixture coverage demonstrates tran
 - [x] Send the Cursor prompt on stdin (`--print` with no positional) instead of argv, removing the 24 KB Windows command-line cap
 - [x] Trust the isolated scratch workspace in print mode (`--trust`)
 - [x] Enrich the picker from `cursor-agent --list-models` (not inference) with a multi-model static fallback
+- [x] Parse `--list-models` under Vite's `FORCE_COLOR` (colorless capture env + ANSI strip) so the picker is not stuck on the static headlines
 
 ## Follow-up: in-app Install
 

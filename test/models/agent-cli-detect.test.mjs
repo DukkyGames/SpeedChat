@@ -28,6 +28,7 @@ describe('agent CLI passive detection', () => {
       parseAgentCliAuthStatus('update available\n{"loggedIn":true,"account":"hidden"}\nwarning'),
       'signed-in',
     );
+    assert.equal(parseAgentCliAuthStatus('\u001B[32m{"loggedIn":true}\u001B[0m'), 'signed-in');
     assert.equal(parseAgentCliAuthStatus('{"authenticated":false}'), 'signed-out');
     assert.equal(parseAgentCliAuthStatus('{"is_error":false,"result":"ok"}'), 'unknown');
     assert.equal(parseAgentCliAuthStatus('command failed for an unrelated reason'), 'unknown');

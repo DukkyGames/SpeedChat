@@ -3,9 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { runProcess } from '../process-runner.js';
 import {
-  applyAgentNodeEnv,
+  applyAgentCliCaptureEnv,
   findAgentCliOnPath,
   resolveAgentCliBin,
+  stripAnsiFromCliText,
 } from '../generations/agent-cli/resolve-bin.js';
 import { getAgentCliDefinition, getAgentCliInstallCommand } from './agent-cli-catalog.js';
 
@@ -31,7 +32,7 @@ async function fileExists(filePath) {
 
 /** @param {string} text */
 function firstSafeLine(text) {
-  return String(text || '').split(/\r?\n/).map((line) => line.trim()).find(Boolean)?.slice(0, 200);
+  return stripAnsiFromCliText(text).split(/\r?\n/).map((line) => line.trim()).find(Boolean)?.slice(0, 200);
 }
 
 /** @param {'claude'|'codex'|'cursor'} kind */
@@ -72,7 +73,7 @@ function jsonObjectsFromMixedOutput(text) {
 
 /** @param {string} text */
 export function parseAgentCliAuthStatus(text) {
-  const normalized = String(text || '').trim();
+  const normalized = stripAnsiFromCliText(text).trim();
   if (!normalized) return 'unknown';
   for (const parsed of jsonObjectsFromMixedOutput(normalized)) {
     if (parsed.loggedIn === false || parsed.authenticated === false) {
@@ -140,7 +141,7 @@ export async function detectAgentCli(kind, options = {}) {
     try {
       const result = await runProcess(resolved.command, [...resolved.argsPrefix, ...definition.versionArgs], {
         timeout: DETECTION_TIMEOUT_MS,
-        env: applyAgentNodeEnv(env, resolved.command),
+        env: applyAgentCliCaptureEnv(env, resolved.command),
       });
       if (result.code === 0) version = firstSafeLine(result.stdout);
     } catch {
@@ -192,7 +193,7 @@ export async function verifyAgentCliAuth(kind, options = {}) {
       [...passive.resolvedArgsPrefix, ...definition.authArgs],
       {
       timeout: DETECTION_TIMEOUT_MS,
-        env: applyAgentNodeEnv(options.env ?? process.env, passive.resolvedCommand),
+        env: applyAgentCliCaptureEnv(options.env ?? process.env, passive.resolvedCommand),
       },
     );
     authStatus = parseAgentCliAuthStatus(`${result.stdout}\n${result.stderr}`);

@@ -227,3 +227,25 @@ export async function findAgentCliOnPath(kind, options = {}) {
 export function applyAgentNodeEnv(env, command) {
   return applyNodeRuntimeEnv(env, command);
 }
+
+/**
+ * Vite's dev server sets FORCE_COLOR. Agent CLIs inherit that and colorize
+ * piped stdout, which breaks parsers that expect plain `id - label` or JSON.
+ */
+export function applyAgentCliCaptureEnv(env, command) {
+  const next = { ...applyAgentNodeEnv(env, command) };
+  // FORCE_COLOR=0 wins over Vite's FORCE_COLOR=1. Do not also set NO_COLOR:
+  // Node treats any FORCE_COLOR value as "set" and warns that NO_COLOR is ignored.
+  next.FORCE_COLOR = '0';
+  delete next.NO_COLOR;
+  next.TERM = 'dumb';
+  return next;
+}
+
+/** CSI / OSC sequences that CLIs emit when FORCE_COLOR is set. */
+const ANSI_ESCAPE = /\u001B(?:\[[0-9;?]*[ -/]*[@-~]|].*?(?:\u0007|\u001B\\))/g;
+
+/** @param {unknown} text */
+export function stripAnsiFromCliText(text) {
+  return String(text || '').replace(ANSI_ESCAPE, '');
+}

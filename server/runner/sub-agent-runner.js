@@ -40,7 +40,7 @@ import {
   stripXmlToolCallBlocks
 } from "./xml-tool-calls.js";
 import { sanitizeCompletionBodyForProvider } from "../providers/sanitize-completion-body.js";
-import { toolImageFollowUpFromAttachments } from "./tool-image-follow-up.js";
+import { toolImageFollowUpFromAttachments, pruneSupersededToolImages } from "./tool-image-follow-up.js";
 import { resolveModelApi } from "../generations/resolve-model-api.js";
 import {
   DEFAULT_CONTEXT_ENFORCEMENT_POLICY,
@@ -787,6 +787,18 @@ function createSubAgentRunner(deps) {
         });
       };
       const enforceContextBudget = async (turnIndex, effectiveLimitOverride) => {
+        // Drop superseded screenshot pixels before anything prices the prompt —
+        // a per-turn screenshot loop is otherwise pure context growth.
+        const prunedImages = pruneSupersededToolImages(messages);
+        if (prunedImages.droppedImages > 0) {
+          messages.length = 0;
+          messages.push(...prunedImages.messages);
+          noteContextStatus(
+            turnIndex,
+            `Dropped ${prunedImages.droppedImages} superseded screenshot${prunedImages.droppedImages === 1 ? "" : "s"}`,
+            estimateApiMessagesTokens(messages)
+          );
+        }
         ({ reservedTokens, requestMaxTokens } = refreshLocalWindowReserves());
         const calibrated = contextCalibratedMessageLimit(
           input.modelId,

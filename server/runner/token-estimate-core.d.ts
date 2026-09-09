@@ -20,15 +20,37 @@ export type TokenEstimateKind = 'prose' | 'payload' | 'schema';
 export declare function charsPerTokenFor(kind: TokenEstimateKind): number;
 /** Rough token proxy; calibrated per content class, not model-accurate. */
 export declare function estimateTokensFromText(text: string, kind?: TokenEstimateKind): number;
-/** Fixed per-image token proxy (aligned with API `image_url` budgeting). */
-export declare const ESTIMATE_IMAGE_URL_TOKENS = 256;
 /**
- * Filler that costs {@link ESTIMATE_IMAGE_URL_TOKENS} per image once run through
+ * Per-image fallback, used only when the intrinsic size cannot be read (a remote
+ * URL, or a format we do not parse). Sized for a ~1 MP image.
+ */
+export declare const ESTIMATE_IMAGE_URL_TOKENS = 1400;
+/**
+ * Pixels per vision token. Modern VLMs bill images by patch count, so cost
+ * scales with area: GPT-4o, Claude and Qwen-VL style patching all land within a
+ * few percent of this divisor.
+ */
+export declare const PIXELS_PER_IMAGE_TOKEN = 750;
+/** Intrinsic pixel size of a base64 `data:image/*` URL (PNG, JPEG, GIF, WebP). */
+export declare function imageDimensionsFromDataUrl(dataUrl: string): {
+    width: number;
+    height: number;
+} | null;
+/**
+ * Token cost of one `image_url` part, priced from its real pixel count. A flat
+ * per-image constant under-counted an unresized Retina screenshot by well over
+ * 10x, which is what let the context wheel read near-empty on a full window.
+ */
+export declare function estimateImageUrlTokens(dataUrl: string | undefined): number;
+/** Summed {@link estimateImageUrlTokens} across every image in a message. */
+export declare function estimateImageUrlsTokens(dataUrls: (string | undefined)[]): number;
+/**
+ * Filler that costs {@link estimateImageUrlsTokens} once run through
  * {@link estimateTokensFromText}. Image parts carry no text to measure, so every
  * estimator prices them by padding the serialized row — and the padding is in
  * *characters*, at the `prose` rate the row itself is measured with.
  */
-export declare function imagePaddingForEstimate(imageCount: number): string;
+export declare function imagePaddingForEstimate(dataUrls: (string | undefined)[]): string;
 /** User-facing label for a token count. */
 export declare function formatTokenEstimateLabel(tokens: number): string;
 export declare const TOKEN_ESTIMATE_TOOLTIP = "Approximate size from character counts calibrated per content type. Real prompt tokens depend on the model tokenizer. Excludes pending composer text and attachments.";

@@ -19,6 +19,7 @@ import { copyHistoryForOutboundApi } from './history';
 import { indexOfLastUserMessage } from './history-truncate-core';
 import {
   isToolImageFollowUpMessage,
+  pruneSupersededToolImages,
   TOOL_IMAGE_NO_VISION_HINT,
   toolImageFollowUpUserMessage,
   toolMessageHasImageAttachment,
@@ -418,7 +419,10 @@ export function buildApiMessages(
     messages.push({ role: 'user', content: continueLine });
   }
 
-  return repairUnpairedToolCalls(foldLeadingAssistantPreamble(messages));
+  // History replays every stored screenshot on every send. Keep only the most
+  // recent pixels so a long browsing chat does not re-send megapixels per turn.
+  const { messages: pruned } = pruneSupersededToolImages(messages);
+  return repairUnpairedToolCalls(foldLeadingAssistantPreamble(pruned));
 }
 
 export function overlayMultimodalHistoryForRunTurn(

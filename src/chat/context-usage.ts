@@ -16,7 +16,7 @@ import {
   type ContextInFlightOverlay,
 } from './context-in-flight';
 import {
-  ESTIMATE_IMAGE_URL_TOKENS,
+  estimateImageUrlTokens,
   estimateTokensFromText,
   type OutboundPromptEstimate,
 } from './prompts/token-estimate-core';
@@ -110,8 +110,9 @@ export function estimateAttachmentTokens(attachments: Attachment[]): number {
       total += estimateTokensFromText(attachment.text);
       continue;
     }
-    if (attachmentImageDataUrl(attachment)) {
-      total += ESTIMATE_IMAGE_URL_TOKENS;
+    const imageDataUrl = attachmentImageDataUrl(attachment);
+    if (imageDataUrl) {
+      total += estimateImageUrlTokens(imageDataUrl);
       continue;
     }
     if (attachment.dataUrl) {

@@ -3,7 +3,7 @@ import {
   charsPerTokenFor,
   imagePaddingForEstimate,
   estimateTokensFromText,
-  ESTIMATE_IMAGE_URL_TOKENS
+  estimateImageUrlsTokens
 } from "./token-estimate-core.js";
 import { isToolImageFollowUpMessage } from "./tool-image-follow-up.js";
 import { LLAMA_CPP_LOCAL_PROVIDER_ID, MLX_LM_LOCAL_PROVIDER_ID } from "./provider-ids.js";
@@ -22,13 +22,20 @@ function normalizePositiveInt(value) {
   const n = Math.floor(value);
   return n > 0 ? n : null;
 }
+/** Data URLs of every `image_url` part in a multi-part message content. */
+function imageUrlsOf(content) {
+  const urls = [];
+  for (const part of content) {
+    if (part.type === "image_url") urls.push(part.image_url?.url);
+  }
+  return urls;
+}
 function serializeApiMessageForEstimate(msg) {
   if (msg.role === "system") return msg.content;
   if (msg.role === "user") {
     const text = apiMessageContentToText(msg.content);
     if (Array.isArray(msg.content)) {
-      const images = msg.content.filter((part) => part.type === "image_url").length;
-      return text + imagePaddingForEstimate(images);
+      return text + imagePaddingForEstimate(imageUrlsOf(msg.content));
     }
     return text;
   }
@@ -47,8 +54,8 @@ function estimateApiMessageTokens(msg) {
   if (msg.role === "tool") return estimateTokensFromText(msg.content, "payload");
   if (msg.role === "user") {
     const text = apiMessageContentToText(msg.content);
-    const images = Array.isArray(msg.content) ? msg.content.filter((part) => part.type === "image_url").length : 0;
-    return estimateTokensFromText(text, "prose") + images * ESTIMATE_IMAGE_URL_TOKENS;
+    const images = Array.isArray(msg.content) ? imageUrlsOf(msg.content) : [];
+    return estimateTokensFromText(text, "prose") + estimateImageUrlsTokens(images);
   }
   if (msg.role === "assistant") {
     let total = estimateTokensFromText(apiMessageContentToText(msg.content), "prose");

@@ -230,7 +230,8 @@ describe('estimateApiMessageTokens', () => {
     );
   });
 
-  test('image parts cost a fixed per-image budget', () => {
+  test('an unreadable image part still costs the fallback budget', () => {
+    // Truncated payload: no header to measure, so the flat fallback applies.
     const withImage: ApiMessage = {
       role: 'user',
       content: [

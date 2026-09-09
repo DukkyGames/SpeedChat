@@ -19,6 +19,27 @@ export declare function toolImageFollowUpUserMessage(message: Message): ApiUserM
 /** True when a tool row stored at least one screenshot attachment. */
 export declare function toolMessageHasImageAttachment(message: Message): boolean;
 /**
+ * Screenshots kept as pixels in an outbound transcript. An agent that shoots a
+ * frame per turn otherwise re-sends every prior screenshot forever: each one is
+ * thousands of vision tokens, so the prompt grows by megapixels a turn.
+ */
+export declare const MAX_LIVE_TOOL_IMAGES = 2;
+/** Replaces the pixels of a screenshot a newer one has superseded. */
+export declare const TOOL_IMAGE_SUPERSEDED_TEXT: string;
+/** Number of `image_url` parts carried by a screenshot follow-up row. */
+export declare function toolImageFollowUpImageCount(msg: ApiMessage): number;
+/**
+ * Replace the pixels of all but the `keep` most recent screenshot follow-ups
+ * with a short note. The rows themselves stay put: they are grouped with the
+ * tool call that produced them, so dropping the message would strip a tool
+ * result out of its turn.
+ */
+export declare function pruneSupersededToolImages(messages: ApiMessage[], keep?: number): {
+    messages: ApiMessage[];
+    droppedMessages: number;
+    droppedImages: number;
+};
+/**
  * Appended to a user message whose attached images could not be sent as pixels.
  * Without it the model sees only `[image: name]` and reports a missing tool.
  */

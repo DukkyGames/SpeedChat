@@ -20,14 +20,14 @@ import { openCaptureFromDrop, openQuickCapture } from '../ui/issue-capture';
 import { isTypingTarget } from '../ui/a11y/typing-target';
 
 /** Chord that opens capture from anywhere. `C` alone files inside Issues. */
-export const QUICK_CAPTURE_CHORD = 'Alt + C';
+export const QUICK_CAPTURE_CHORD = 'Ctrl/Cmd + I';
 
 const DROP_CLASS = 'is-drop-target';
 
 function isQuickCaptureChord(event: KeyboardEvent): boolean {
-  if (event.ctrlKey || event.metaKey || event.shiftKey) return false;
-  if (!event.altKey) return false;
-  return event.code === 'KeyC' || event.key.toLowerCase() === 'c';
+  if (event.altKey || event.shiftKey) return false;
+  if (!event.ctrlKey && !event.metaKey) return false;
+  return event.code === 'KeyI' || event.key.toLowerCase() === 'i';
 }
 
 /**

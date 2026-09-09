@@ -367,7 +367,7 @@ function fallbackRightPaneModeAfterClose(closedMode: Exclude<RightPaneMode, null
 
 /** Show split viewer pane; keeps preview tabs in the unified strip. */
 export function showViewerSplit(): void {
-  clearChatColumnDragCollapsed();
+  if (!isRightSplitOpen()) clearChatColumnDragCollapsed();
   const state = getFilePanelState();
   if (state.rightPaneMode === 'split' && state.rightPaneSplit.enabled) {
     patchFilePanelState({ viewerOpen: true, rightPaneMode: 'split' });
@@ -412,7 +412,7 @@ export type ShowPreviewSplitOptions = {
 
 /** Show preview pane; keeps file tabs in the unified strip. */
 export function showPreviewSplit(_options?: ShowPreviewSplitOptions): void {
-  clearChatColumnDragCollapsed();
+  if (!isRightSplitOpen()) clearChatColumnDragCollapsed();
 
   if (isRightPaneSplitLayoutEnabled()) {
     patchFilePanelState({ viewerOpen: true, rightPaneMode: 'split' });

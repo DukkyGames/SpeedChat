@@ -280,7 +280,7 @@ export interface RunChatTurnOptions {
   skillBody?: string | null;
   /** Re-subscribe to an existing backend generation (boot resume); skips POST. */
   resumeGenerationId?: string;
-  /** When false, do not set the global streaming flag (background re-subscribe). */
+  /** @deprecated Every in-flight chat is registered by id; retained for caller compatibility. */
   ownsGlobalStreaming?: boolean;
   /** Replay inputs from a prior fork (regenerate / fork with model swap). */
   replaySnapshot?: TurnSnapshot;
@@ -592,7 +592,7 @@ export async function maybeRunChatTurnViaRunner(
   return true;
 }
 
-export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
+export async function runChatTurn(options: RunChatTurnOptions): Promise<boolean> {
   const {
     chat,
     pushUser,
@@ -607,7 +607,7 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
     firstUserSend: firstUserSendOption,
     skillBody: presetSkillBody = null,
     resumeGenerationId,
-    ownsGlobalStreaming = true,
+    ownsGlobalStreaming: _ownsGlobalStreaming = true,
     replaySnapshot,
     parentRunId,
     forkOverrides,
@@ -621,11 +621,17 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
 
   const hideUserEcho = suppressUserEcho || Boolean(superPlanStage);
 
-  await ensureChatHistoryLoaded(chat.id);
-  requireHistory(chat);
-
   if (!beginChatTurnSetup(chat.id)) {
-    return;
+    return false;
+  }
+
+  getChatAbort(chat.id)?.abort();
+  const controller = new AbortController();
+  setChatAbort(chat.id, controller);
+  const chatSignal = controller.signal;
+  setStreaming(true, chat.id);
+  if (getActiveChat().id === chat.id) {
+    syncComposerFromStreamingState();
   }
 
   let turnRunId: TurnRunId | undefined;
@@ -654,6 +660,9 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
   const ledgerWrites: Promise<void>[] = [];
 
   try {
+    await ensureChatHistoryLoaded(chat.id);
+    requireHistory(chat);
+
     if (skillId === GIT_SETUP_SKILL_ID && !resumeGenerationId) {
       await prepareGitSetupTurn();
     }
@@ -685,11 +694,6 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
     if (!modelId && !resumeGenerationId) {
       throw new Error('No model selected for this chat');
     }
-
-    getChatAbort(chat.id)?.abort();
-    const controller = new AbortController();
-    setChatAbort(chat.id, controller);
-    const chatSignal = controller.signal;
 
     const firstUserSendForInjections = pushUser
       ? (firstUserSendOption ?? isFirstUserMessagePending(chat))
@@ -799,7 +803,7 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
             if (task) task.error = err.message;
           }
         }
-        return;
+        return true;
       }
       throw err;
     }
@@ -857,12 +861,6 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
       startedAtMs: Date.now(),
     });
 
-    if (ownsGlobalStreaming) {
-      setStreaming(true, chat.id);
-    }
-    if (getActiveChat().id === chat.id) {
-      syncComposerFromStreamingState();
-    }
     if (isStreamDomVisible(chat.id)) {
       setStatus(
         'spin',
@@ -1795,11 +1793,9 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
         refreshBranchPickerAtFork(chat, run.forkHistoryIndex);
       }
     }
-    if (ownsGlobalStreaming) {
-      endStreamingImpl(chat.id);
-      setSidebarStreamPhase(null, chat.id);
-      syncChatItemDotsInDom();
-    }
+    endStreamingImpl(chat.id);
+    setSidebarStreamPhase(null, chat.id);
+    syncChatItemDotsInDom();
     if (getActiveChat().id === chat.id) {
       syncComposerFromStreamingState();
     }
@@ -1834,6 +1830,7 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<void> {
       }
     }
   }
+  return true;
 }
 
 // ── Resume ───────────────────────────────────────────────────────────────────
@@ -1842,12 +1839,12 @@ export async function resumeParentChatWithMessage(
   chat: Chat,
   message: string,
   options: ResumeParentChatOptions = {},
-): Promise<void> {
-  if (isChatStreaming(chat.id)) return;
-  if (isChatTurnSetupPending(chat.id)) return;
-  if (!chat.modelId?.trim()) return;
+): Promise<boolean> {
+  if (isChatStreaming(chat.id)) return false;
+  if (isChatTurnSetupPending(chat.id)) return false;
+  if (!chat.modelId?.trim()) return false;
 
-  await runChatTurn({
+  return runChatTurn({
     chat,
     pushUser: true,
     suppressUserEcho: options.suppressUserEcho ?? false,
@@ -1857,7 +1854,6 @@ export async function resumeParentChatWithMessage(
     displayText: message,
     historyContent: message,
     validAttachments: [],
-    ownsGlobalStreaming: chat.id === getActiveChat().id,
     goalDriven: options.goalDriven ?? false,
   });
 }

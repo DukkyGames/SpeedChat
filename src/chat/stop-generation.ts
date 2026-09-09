@@ -13,9 +13,11 @@ import { forceCloseAskQuestionModal } from '../ui/question-cards-modal';
 export function stopGeneration(chatId?: string, reason: ChatStopReason = 'user'): void {
   forceCloseAskQuestionModal();
 
-  const id = chatId?.trim() || getActiveChat().id;
+  const requestedId = chatId?.trim();
+  const chat = requestedId ? findChatById(requestedId) : getActiveChat();
+  if (!chat) return;
+  const id = chat.id;
   setChatStopReason(id, reason);
-  const chat = findChatById(id) ?? getActiveChat();
   const generationId = chat.currentGenerationId?.trim();
   if (generationId) {
     void cancelGeneration(generationId).catch(() => {

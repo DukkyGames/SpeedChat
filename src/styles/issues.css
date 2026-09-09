@@ -2955,7 +2955,7 @@ button.issues-detail__row:focus-visible {
   padding: 6px 8px;
   border-radius: var(--radius-sm);
   background: var(--mn-code-bg, var(--mn-bg));
-  font-family: var(--mn-font-mono, ui-monospace, monospace);
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 12px;
   overflow-x: auto;
   white-space: pre;

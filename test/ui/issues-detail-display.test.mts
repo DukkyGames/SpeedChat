@@ -78,7 +78,7 @@ function headingTexts(root: Element): string[] {
 function sectionCount(root: Element, key: string): string | undefined {
   return (
     root
-      .querySelector(`[data-section="${key}"] .issues-detail__sec-count`)
+      .querySelector(`[data-section="${key}"] .issues-detail__row-value`)
       ?.textContent ?? undefined
   );
 }
@@ -167,7 +167,7 @@ describe('issues detail display', () => {
     assert.equal(titles.includes('Plan'), false, 'no plan file, no Plan section');
     assert.equal(titles.includes('Related'), false, 'no refs, no Related section');
     // Everything else is one labelled row, so nothing is an orphan form control.
-    for (const heading of ['Code links', 'Attachments', 'Git', 'Chats']) {
+    for (const heading of ['Code', 'Attachments', 'Git', 'Chats']) {
       assert.ok(titles.includes(heading), `${heading} row is missing`);
     }
 
@@ -189,16 +189,23 @@ describe('issues detail display', () => {
     assert.ok(buttonByLabel(scroll, 'Attach files'));
     assert.ok(buttonByLabel(scroll, 'Add a sub-issue'));
     assert.ok(buttonByLabel(scroll, 'Add a chat'));
-    assert.ok(buttonByLabel(scroll, 'Link a commit or URL'));
+    const gitActions = buttonByLabel(scroll, 'Git actions');
+    assert.ok(gitActions);
 
-    const pasteRow = scroll.querySelector('.issues-detail__add-code') as HTMLElement | null;
-    assert.ok(pasteRow);
-    assert.equal(pasteRow.hidden, true, 'the paste field is revealed by +, not always open');
+    let pasteRow = scroll.querySelector(
+      '[data-section="code"] .issues-detail__add-code',
+    ) as HTMLElement | null;
+    assert.equal(pasteRow, null, 'the paste field is created by +, not always present');
     buttonByLabel(scroll, 'Add code link')?.click();
+    pasteRow = scroll.querySelector('[data-section="code"] .issues-detail__add-code');
+    assert.ok(pasteRow);
     assert.equal(pasteRow.hidden, false);
 
+    gitActions?.click();
     assert.ok(
-      [...scroll.querySelectorAll('button')].some((btn) => btn.textContent === 'Create branch'),
+      [...document.querySelectorAll('[role="menu"] button')].some(
+        (btn) => btn.textContent?.includes('Create branch'),
+      ),
     );
     assert.ok(scroll.querySelector('.issues-detail__section--document'));
     assert.ok(scroll.querySelector('.issues-detail__section--meta'));
@@ -230,41 +237,38 @@ describe('issues detail display', () => {
     const scroll = document.querySelector('.issues-detail__scroll');
     assert.ok(scroll);
     const titles = headingTexts(scroll);
-    assert.ok(titles.includes('Code links'));
+    assert.ok(titles.includes('Code'));
     assert.ok(titles.includes('Plan'));
     assert.ok(titles.includes('Related'));
     assert.equal(titles.includes('Description'), false);
 
-    assert.equal(sectionCount(scroll, 'code'), '1');
+    assert.equal(sectionCount(scroll, 'code'), 'issues-detail.ts');
     assert.equal(sectionCount(scroll, 'related'), '1');
     assert.equal(sectionCount(scroll, 'attachments'), undefined);
 
     // A section with content folds, and the fold survives a re-render.
     const codeLabel = scroll.querySelector(
-      '[data-section="code"] button.issues-detail__sec-label',
+      '[data-section="code"] button.issues-detail__row',
     ) as HTMLButtonElement | null;
     assert.ok(codeLabel, 'a section with content is collapsible');
-    assert.equal(codeLabel.getAttribute('aria-expanded'), 'true');
-    codeLabel.click();
     assert.equal(codeLabel.getAttribute('aria-expanded'), 'false');
-    assert.equal(sectionBody(scroll, 'code')?.hidden, true);
+    codeLabel.click();
+    assert.equal(codeLabel.getAttribute('aria-expanded'), 'true');
+    assert.equal(sectionBody(scroll, 'code')?.hidden, false);
 
     openIssueDetail('GET-4');
     const repainted = document.querySelector('.issues-detail__scroll');
     assert.ok(repainted);
     assert.equal(
       repainted
-        .querySelector('[data-section="code"] button.issues-detail__sec-label')
+        .querySelector('[data-section="code"] button.issues-detail__row')
         ?.getAttribute('aria-expanded'),
-      'false',
+      'true',
       'the fold is remembered across renders',
     );
 
-    // An empty section has nothing to fold, so its label is not a button.
-    assert.equal(
-      repainted.querySelector('[data-section="attachments"] button.issues-detail__sec-label'),
-      null,
-    );
+    // Empty sections still expose an add action, so their row is a button.
+    assert.ok(repainted.querySelector('[data-section="attachments"] button.issues-detail__row'));
   });
 
   test('linked GitHub issue lives in Git, not a second GITHUB block', () => {
@@ -346,8 +350,15 @@ describe('issues detail display', () => {
     const scroll = document.querySelector('.issues-detail__scroll');
     assert.ok(scroll);
     assert.ok(headingTexts(scroll).includes('Git'));
+    const gitActions = scroll.querySelector(
+      '[data-section="git"] .issues-detail__sec-btn[aria-label="Git actions"]',
+    ) as HTMLButtonElement | null;
+    assert.ok(gitActions);
+    gitActions.click();
     assert.ok(
-      [...scroll.querySelectorAll('button')].some((btn) => btn.textContent === 'Push to GitHub'),
+      [...document.querySelectorAll('[role="menu"] button')].some(
+        (btn) => btn.textContent?.includes('Push to GitHub'),
+      ),
     );
   });
 

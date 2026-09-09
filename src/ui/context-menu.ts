@@ -94,6 +94,14 @@ let listenersBound = false;
 let submenuTimer: ReturnType<typeof setTimeout> | null = null;
 let typeaheadBuffer = '';
 let typeaheadAt = 0;
+const deferredRefreshes = new Set<() => void>();
+
+/** Keep controls stable while their menu is being used; coalesce refreshes until dismissal. */
+export function deferUntilContextMenuClosed(refresh: () => void): boolean {
+  if (!isContextMenuOpen()) return false;
+  deferredRefreshes.add(refresh);
+  return true;
+}
 
 /** True while any context menu is open. */
 export function isContextMenuOpen(): boolean {
@@ -110,6 +118,13 @@ export function closeContextMenu(options?: { restoreFocus?: boolean }): void {
   const target = restoreFocusEl;
   restoreFocusEl = null;
   if (options?.restoreFocus !== false) target?.focus();
+  queueMicrotask(() => {
+    // Replacing one menu with another should keep the same refreshes deferred.
+    if (isContextMenuOpen()) return;
+    const refreshes = [...deferredRefreshes];
+    deferredRefreshes.clear();
+    for (const refresh of refreshes) refresh();
+  });
 }
 
 function host(): HTMLElement {

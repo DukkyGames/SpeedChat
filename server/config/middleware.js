@@ -1,5 +1,9 @@
 import fs from 'node:fs';
-import { ensureMinnowLayout, getMinnowHome } from './home.js';
+import {
+  ensureMinnowLayout,
+  ensureMinnowLayoutInitialized,
+  getMinnowHome,
+} from './home.js';
 import {
   readResource,
   writeResource,
@@ -175,7 +179,7 @@ export async function handleConfigRequest(req, res, pathname) {
 
   try {
     if (pathname === '/api/config/ping' && req.method === 'GET') {
-      await ensureMinnowLayout();
+      await ensureMinnowLayoutInitialized();
       const debug = process.env.MINNOW_DEBUG === '1';
       sendJson(res, 200, {
         ok: true,

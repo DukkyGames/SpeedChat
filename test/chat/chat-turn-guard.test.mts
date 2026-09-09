@@ -10,12 +10,15 @@ import {
   isChatTurnSetupPending,
 } from '../../src/chat/chat-turn-guard.ts';
 import { setStreaming } from '../../src/app-state.ts';
+import { createEmptyChatObject, setSessionStateForTests } from '../../src/state/sessions.ts';
+import { truncateChatHistory } from '../../src/chat/history-truncate.ts';
 
 const CHAT_A = '11111111-1111-1111-1111-111111111111';
 
 afterEach(() => {
   setStreaming(false);
   endChatTurnSetup(CHAT_A);
+  setSessionStateForTests(null);
 });
 
 describe('chat-turn-guard', () => {
@@ -35,5 +38,27 @@ describe('chat-turn-guard', () => {
   test('beginChatTurnSetup fails when chat is already streaming', () => {
     setStreaming(true, CHAT_A);
     assert.equal(beginChatTurnSetup(CHAT_A), false);
+  });
+
+  test('history truncation is blocked during pre-stream turn setup', () => {
+    const chat = createEmptyChatObject('m1');
+    chat.id = CHAT_A;
+    chat.history = [
+      { role: 'user', content: 'hello' },
+      { role: 'assistant', content: 'hi' },
+    ];
+    setSessionStateForTests({
+      version: 3,
+      activeId: CHAT_A,
+      sidebarCollapsed: false,
+      chats: [chat],
+    });
+    assert.equal(beginChatTurnSetup(CHAT_A), true);
+
+    assert.deepEqual(truncateChatHistory(CHAT_A, 0, 'inclusive'), {
+      ok: false,
+      error: 'streaming',
+    });
+    assert.equal(chat.history.length, 2);
   });
 });

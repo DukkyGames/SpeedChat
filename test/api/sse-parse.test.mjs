@@ -147,6 +147,28 @@ describe('feedSseEventBuffer', () => {
     assert.equal(chunks.length, 2);
     assert.equal(chunks[1].choices[0].delta.content, '2');
   });
+
+  it('preserves CRLF framing when the CRLF delimiter is split across chunks', () => {
+    const state = createSseEventBuffer();
+    const chunks = [];
+    const onChunk = (chunk) => chunks.push(chunk);
+
+    feedSseEventBuffer(
+      state,
+      'data: {"choices":[{"delta":{"content":"1"}}]}\r',
+      onChunk,
+    );
+    feedSseEventBuffer(
+      state,
+      '\n\r\ndata: {"choices":[{"delta":{"content":"2"}}]}\r\n\r\n',
+      onChunk,
+    );
+
+    assert.deepEqual(
+      chunks.map((chunk) => chunk.choices[0].delta.content),
+      ['1', '2'],
+    );
+  });
 });
 
 describe('parseCompletionResponseBody', () => {
@@ -164,7 +186,60 @@ describe('parseCompletionResponseBody', () => {
       'data: {"choices":[{"delta":{"content":"lo"}}]}\n\n' +
       'data: [DONE]\n\n';
     const parsed = parseCompletionResponseBody(sse);
-    assert.ok(parsed.choices);
+    assert.equal(parsed.choices[0].message.content, 'hello');
+    assert.equal(parsed.choices[0].finish_reason, null);
+  });
+
+  it('assembles text, reasoning, tool calls, finish reason, and usage from SSE fallback', () => {
+    const events = [
+      { choices: [{ delta: { content: 'Answer ', reasoning: 'think ' } }] },
+      {
+        choices: [{ delta: { content: 'done', reasoning: 'done' } }],
+      },
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_1',
+                  function: { name: 'read_', arguments: '{"path":' },
+                },
+              ],
+            },
+          },
+        ],
+      },
+      {
+        choices: [
+          {
+            delta: {
+              tool_calls: [
+                { index: 0, function: { name: 'file', arguments: '"a"}' } },
+              ],
+            },
+            finish_reason: 'tool_calls',
+          },
+        ],
+        usage: { prompt_tokens: 3, completion_tokens: 4, total_tokens: 7 },
+      },
+    ];
+    const sse = events.map((event) => `data: ${JSON.stringify(event)}\r\n\r\n`).join('');
+
+    const parsed = parseCompletionResponseBody(sse);
+
+    assert.equal(parsed.choices[0].message.content, 'Answer done');
+    assert.equal(parsed.choices[0].message.reasoning, 'think done');
+    assert.deepEqual(parsed.choices[0].message.tool_calls, [
+      {
+        id: 'call_1',
+        type: 'function',
+        function: { name: 'read_file', arguments: '{"path":"a"}' },
+      },
+    ]);
+    assert.equal(parsed.choices[0].finish_reason, 'tool_calls');
+    assert.equal(parsed.usage.total_tokens, 7);
   });
 
   it('does not throw on glued JSON after a valid object (fallback path)', () => {
@@ -191,6 +266,35 @@ describe('parseCompletionResponseBody', () => {
       `event: end\ndata: ${JSON.stringify({ status: 'complete' })}\n\n`;
     const parsed = parseCompletionResponseBody(sse);
     assert.deepEqual(parsed.choices[0].message.parsed, structured.choices[0].message.parsed);
+  });
+
+  it('preserves a tool-only non-streaming message before the generation end event', () => {
+    const completion = {
+      choices: [
+        {
+          message: {
+            role: 'assistant',
+            content: null,
+            tool_calls: [
+              {
+                id: 'call_1',
+                type: 'function',
+                function: { name: 'list_directory', arguments: '{"path":"."}' },
+              },
+            ],
+          },
+          finish_reason: 'tool_calls',
+        },
+      ],
+    };
+    const sse =
+      `data: ${JSON.stringify(completion)}\n\n` +
+      'event: end\ndata: {"status":"complete"}\n\n';
+
+    const parsed = parseCompletionResponseBody(sse);
+
+    assert.equal(parsed.choices[0].message.tool_calls[0].function.name, 'list_directory');
+    assert.equal(parsed.choices[0].finish_reason, 'tool_calls');
   });
 });
 

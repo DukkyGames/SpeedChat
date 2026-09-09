@@ -25,6 +25,14 @@ type OpenPopover = {
 let openPopover: OpenPopover | null = null;
 let popoverReposition: (() => void) | null = null;
 let outsidePointerBound = false;
+const deferredRefreshes = new Set<() => void>();
+
+/** Keep issue rows stable while a body-mounted label popover is being used. */
+export function deferUntilIssueLabelPopoverClosed(refresh: () => void): boolean {
+  if (!openPopover) return false;
+  deferredRefreshes.add(refresh);
+  return true;
+}
 
 /** Paint the Linear tint from the workspace catalog onto a chip. */
 export function applyIssueLabelSwatch(el: HTMLElement, name: string): void {
@@ -58,6 +66,12 @@ export function closeIssueLabelPopovers(): void {
   openPopover?.root.remove();
   openPopover?.onClose();
   openPopover = null;
+  queueMicrotask(() => {
+    if (openPopover) return;
+    const refreshes = [...deferredRefreshes];
+    deferredRefreshes.clear();
+    for (const refresh of refreshes) refresh();
+  });
 }
 
 function positionIssueLabelPopover(anchor: HTMLElement, menu: HTMLElement): void {

@@ -367,6 +367,10 @@ async function attemptCandidateStream({
   origin,
   canFailover,
 }) {
+  if (state.status === 'cancelled') {
+    return { outcome: 'complete' };
+  }
+
   const controller = new AbortController();
   state.upstreamController = controller;
 
@@ -411,6 +415,11 @@ async function attemptCandidateStream({
       signal: controller.signal,
     });
 
+    if (state.status === 'cancelled') {
+      controller.abort();
+      return { outcome: 'complete' };
+    }
+
     if (!upstream.ok) {
       let rawBody = '';
       try {
@@ -437,6 +446,28 @@ async function attemptCandidateStream({
         };
       }
       return { outcome: 'fatal', message };
+    }
+
+    const contentType = upstream.headers?.get?.('content-type')?.toLowerCase() ?? '';
+    if (contentType.includes('text/html')) {
+      let rawBody = '';
+      try {
+        rawBody = await upstream.text();
+      } catch {
+      }
+      const message =
+        'Provider returned an HTML error page instead of a completion response';
+      dumpUpstreamFailure({
+        status: upstream.status,
+        url,
+        providerId: candidate.providerId,
+        modelId: candidate.modelId,
+        requestBody,
+        responseText: rawBody,
+      });
+      return canFailover
+        ? { outcome: 'retry', message, retrySameCandidate: false, hostSuspect: true }
+        : { outcome: 'fatal', message };
     }
 
     if (!upstream.body) {

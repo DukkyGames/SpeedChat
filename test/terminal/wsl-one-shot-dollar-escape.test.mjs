@@ -94,7 +94,9 @@ function wslLiveReady() {
   try {
     const probeList = spawnSync('wsl.exe', ['-l', '-q'], { timeout: 10_000, encoding: 'utf8' });
     if (probeList.status !== 0) return false;
-    const probe = spawnSync('wsl.exe', ['-e', 'true'], { timeout: 10_000 });
+    const probe = spawnSync('wsl.exe', ['--', 'bash', '-lc', 'test -n "$HOME"'], {
+      timeout: 10_000,
+    });
     return probe.status === 0;
   } catch {
     return false;

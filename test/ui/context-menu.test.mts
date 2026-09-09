@@ -8,6 +8,7 @@ import { Window } from 'happy-dom';
 
 import {
   closeContextMenu,
+  deferUntilContextMenuClosed,
   isContextMenuOpen,
   openContextMenu,
   type MenuItem,
@@ -78,6 +79,34 @@ describe('shared context menu', () => {
     assert.equal(menu?.getAttribute('aria-label'), 'Issue actions');
     assert.equal(rows(doc).length, 3);
     assert.equal(doc.activeElement?.textContent?.trim(), 'Open');
+  });
+
+  test('coalesces background refreshes until the menu action has completed', async () => {
+    const doc = installDom();
+    let selected = false;
+    const observations: boolean[] = [];
+    const refresh = () => observations.push(selected);
+    openContextMenu({ items: [{ id: 'choose', label: 'Choose', onSelect: () => { selected = true; } }] });
+    assert.equal(deferUntilContextMenuClosed(refresh), true);
+    assert.equal(deferUntilContextMenuClosed(refresh), true);
+    assert.deepEqual(observations, []);
+    rows(doc)[0].click();
+    await Promise.resolve();
+    assert.deepEqual(observations, [true]);
+    assert.equal(deferUntilContextMenuClosed(refresh), false);
+  });
+
+  test('opening a replacement menu keeps background refreshes deferred', async () => {
+    installDom();
+    let refreshes = 0;
+    openContextMenu({ items: sample });
+    deferUntilContextMenuClosed(() => { refreshes += 1; });
+    openContextMenu({ items: sample });
+    await Promise.resolve();
+    assert.equal(refreshes, 0);
+    closeContextMenu();
+    await Promise.resolve();
+    assert.equal(refreshes, 1);
   });
 
   test('renders a leading Uicons glyph when iconClass is set', () => {

@@ -24,6 +24,8 @@ import {
   setAgentsEffectorFactory,
 } from '../../server/sub-agents/middleware.js';
 import { resetProductionDelivery } from '../../server/sub-agents/runtime.js';
+import { appendEvents } from '../../server/sub-agents/journal.js';
+import { makeEvent } from '../../server/sub-agents/events.js';
 
 const PARENT = 'chat-p8f-api';
 const CWD = '/tmp/p8f-workspace';
@@ -299,6 +301,38 @@ describe('POST /api/agents/:runId/cancel', () => {
     const got = await call('GET', `/api/agents/${spawned.runId}`);
     assert.equal(got.status, 200);
     assert.equal(got.body.status, 'cancelled');
+  });
+
+  it('settles a cancelling attempt left open by a previous process', async () => {
+    const runId = 'cancelled-before-restart';
+    await appendEvents(PARENT, [
+      makeEvent('run.requested', {
+        runId,
+        agentType: 'explore',
+        task: 'inspect files',
+        parentChatId: PARENT,
+        cwd: CWD,
+        requestedAt: 1,
+      }),
+      makeEvent('attempt.started', {
+        runId,
+        attemptId: 'sa-before-restart',
+        seedKind: 'initial',
+        seed: { kind: 'initial' },
+      }),
+      makeEvent('run.cancelled', { runId, reason: 'user' }),
+    ]);
+
+    const cancelled = await call('POST', `/api/agents/${runId}/cancel`);
+    assert.equal(cancelled.status, 200);
+    assert.equal(cancelled.body.status, 'cancelled');
+    assert.equal(cancelled.body.state.runs[0].phase, 'cancelled');
+
+    const journal = (await call('GET', `/api/agents/${runId}/journal`)).body.events;
+    const ended = journal.filter((event) => event.type === 'attempt.ended');
+    assert.equal(ended.length, 1);
+    assert.equal(ended[0].attemptId, 'sa-before-restart');
+    assert.equal(ended[0].outcome, 'crashed');
   });
 });
 

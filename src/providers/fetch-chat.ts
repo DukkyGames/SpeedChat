@@ -74,6 +74,16 @@ export async function postChatCompletions(
     throw new DOMException('Aborted', 'AbortError');
   }
 
+  let streamUnsubscribe: (() => void) | null = null;
+  let removeAbortListener: (() => void) | null = null;
+
+  const stopSubscription = (): void => {
+    streamUnsubscribe?.();
+    streamUnsubscribe = null;
+    removeAbortListener?.();
+    removeAbortListener = null;
+  };
+
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       let closed = false;
@@ -82,18 +92,20 @@ export async function postChatCompletions(
       const failStream = (err: unknown): void => {
         if (closed) return;
         closed = true;
+        stopSubscription();
         controller.error(err);
       };
 
       const closeStream = (): void => {
         if (closed) return;
         closed = true;
+        stopSubscription();
         try {
           controller.close();
         } catch {}
       };
 
-      const unsubscribe = subscribeToGenerationRaw(
+      streamUnsubscribe = subscribeToGenerationRaw(
         generationId,
         {
           onChunk: (text) => {
@@ -133,16 +145,18 @@ export async function postChatCompletions(
         signal,
       );
 
-      signal.addEventListener(
-        'abort',
-        () => {
-          unsubscribe();
-          failStream(new DOMException('Aborted', 'AbortError'));
-          void cancelGeneration(generationId).catch(() => {
-          });
-        },
-        { once: true },
-      );
+      const onSignalAbort = () => {
+        stopSubscription();
+        failStream(new DOMException('Aborted', 'AbortError'));
+        void cancelGeneration(generationId).catch(() => {});
+      };
+      signal.addEventListener('abort', onSignalAbort, { once: true });
+      removeAbortListener = () => signal.removeEventListener('abort', onSignalAbort);
+      if (signal.aborted) onSignalAbort();
+    },
+    cancel() {
+      stopSubscription();
+      return cancelGeneration(generationId).catch(() => {});
     },
   });
 

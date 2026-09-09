@@ -40,6 +40,8 @@ const MAX_TERMINAL_HISTORY = 50;
 
 const RUN_EVICTION_MS = 60_000;
 
+const STOP_SETTLE_TIMEOUT_MS = 3_000;
+
 /** @typedef {'user' | 'agent'} TerminalSource */
 
 /**
@@ -367,6 +369,7 @@ export async function createRun({
         onSpawn: (child) => {
           state.child = child;
           if (child.pid) void updateRunIndexEntry(runId, { pid: child.pid });
+          if (state.stoppedByUser) killProcessTree(child);
         },
         onStdout: (text) => {
           appendBuffer(state, 'stdout', text);
@@ -753,10 +756,52 @@ export async function stopActiveRun(runId) {
     return { ok: false, runId, error: `unknown run_id ${runId}` };
   }
   if (state.finished) {
-    return { ok: true, runId, alreadyStopped: true };
+    const settled = await waitForCompletionWithin(state.completion, STOP_SETTLE_TIMEOUT_MS);
+    return settled
+      ? { ok: true, runId, alreadyStopped: true }
+      : { ok: false, runId, error: `run ${runId} finished but completion did not settle` };
   }
-  killLiveRun(state);
+  state.stoppedByUser = true;
+  if (state.child) {
+    await killProcessTreeAndWait(state.child);
+  } else {
+    killLiveRun(state);
+  }
+
+  const settled = await waitForCompletionWithin(state.completion, STOP_SETTLE_TIMEOUT_MS);
+  if (!settled) {
+    const pid = state.child?.pid ?? null;
+    return {
+      ok: false,
+      runId,
+      pid,
+      error:
+        pid == null
+          ? `run ${runId} cancellation is pending; startup did not settle`
+          : isPidAlive(pid)
+            ? `failed to stop run ${runId}; process ${pid} is still alive`
+            : `run ${runId} exited but completion did not settle`,
+    };
+  }
   return { ok: true, runId };
+}
+
+/**
+ * @param {Promise<unknown>} completion
+ * @param {number} timeoutMs
+ */
+async function waitForCompletionWithin(completion, timeoutMs) {
+  let timer;
+  try {
+    return await Promise.race([
+      completion.then(() => true),
+      new Promise((resolve) => {
+        timer = setTimeout(() => resolve(false), timeoutMs);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /**

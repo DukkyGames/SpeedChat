@@ -33,6 +33,8 @@ function setupDom(): void {
   globalThis.window = window as unknown as Window & typeof globalThis.window;
   globalThis.document = window.document;
   globalThis.HTMLElement = window.HTMLElement;
+  globalThis.HTMLInputElement = window.HTMLInputElement;
+  globalThis.HTMLSelectElement = window.HTMLSelectElement;
   globalThis.Node = window.Node;
   globalThis.SVGElement = window.SVGElement;
   globalThis.getComputedStyle = window.getComputedStyle.bind(window);

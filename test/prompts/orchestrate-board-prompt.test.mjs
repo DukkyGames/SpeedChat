@@ -69,4 +69,11 @@ describe('orchestrate prompts after P4-C', () => {
       );
     }
   });
+
+  test('board builders are not instructed to use renderer-only todo tools', () => {
+    for (const variant of ['agent.full.md', 'agent.lite.md']) {
+      const body = fs.readFileSync(path.join(SERVER_PROMPTS, 'builder', variant), 'utf8');
+      assert.doesNotMatch(body, /todo_write|progress todos/i, variant);
+    }
+  });
 });

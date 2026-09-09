@@ -99,6 +99,8 @@ Minnow/
 
 ## Persistence (`~/.minnow`)
 
+Startup and `/api/config/ping` share `ensureMinnowLayoutInitialized()`: concurrent calls coalesce, successful initialization is cached for the resolved home, and failures remain retryable. `resetMinnowHomeCache()` invalidates it. Regular `ensureMinnowLayout()` callers still repair missing layout files; health probes avoid repeating that filesystem and Brain initialization sweep.
+
 **Override:** `MINNOW_HOME` for tests/CI.
 
 | Platform | Path |
@@ -195,6 +197,8 @@ The end-of-run report (`src/orchestrator/board-report.ts`) is a full-width dashb
 
 ## Chat, sessions, and streaming
 
+**Reloaded workspace picker:** A late workspace choice only holds the loading cover when a boot handoff is actually pending. After reload, the picker closes through the already-initialized workspace-switch path so Code cannot remain hidden behind a completed boot cover.
+
 ### Message types (`chat.history`)
 
 | Role | Shape | Notes |
@@ -207,6 +211,8 @@ Wire format may use multimodal `ContentPart[]` for VLMs; built in [`src/chat/bui
 
 ### Multi-chat
 
+**Turn ownership:** `runChatTurn` claims per-chat setup, streaming state, and its abort controller before awaiting history hydration. Background continuations use the same ownership and Stop path. The return value reports whether the turn was accepted; queued follow-ups are restored if a competing turn wins setup or continuation loading fails. Fork, truncation, and explicit Stop checks target the requested chat, including its setup phase.
+
 - Persisted in `sessions/sessions.db` (SQLite); legacy `sessions/state.json` is imported once on upgrade (see canonical session store above). Schema version in [`src/types.ts`](../src/types.ts).
 - Each chat has `workspacePath`; sidebar lists current workspace (+ Unassigned legacy).
 - **Workspace pick / switch** ([`onWorkspaceChanged`](../src/state/sessions.ts), [`applyWorkspaceScopedSession`](../src/ui/sidebar.ts)): dismisses any open Orchestrate board view and starts a **new empty General chat** for that folder (does not restore `lastActiveChatIdByWorkspace` or the last planner/board session). Foregrounding Code from another app still uses `lastActiveChatIdByWorkspace` via [`restoreCodeSessionOnForeground`](../src/os/code-launch.ts).
@@ -218,6 +224,8 @@ Wire format may use multimodal `ContentPart[]` for VLMs; built in [`src/chat/bui
 - **Removed-app session migrate:** stored `Chat.appScope` `'calendar'` / `'email'` is dropped on load (those chats become ordinary Code chats). `lastActiveChatIdByApp.calendar` / `.email` keys are omitted. Persisted `modeId` `'desktop'` / `'email'` remaps to **General** via [`normalizeModeId`](../src/chat/modes/types.ts) (`ModeId` still lists both so old transcripts type-check).
 
 ### Backend-owned generations
+
+**Transport recovery:** Both generation subscribers accept LF/CRLF framing across byte boundaries and require the terminal `event: end`. A premature EOF or transient stream failure re-subscribes once to the same generation, skipping already delivered blocks from its retained byte replay. It does not start duplicate model work. Retention remains 30 seconds for ephemeral generations and five minutes for persistent ones, with the existing 16 MB cap; eviction or another disconnect surfaces an error. Readers are cancelled/released on early termination. The nonstreaming response parser assembles text, reasoning, and tool-call deltas when a provider returns SSE despite `stream: false`.
 
 Main chat: `POST /api/generations` + `GET .../stream` with replay. Client stores `chat.currentGenerationId`; reload re-subscribes via [`src/chat/generation-resume.ts`](../src/chat/generation-resume.ts). Stop: [`src/chat/stop-generation.ts`](../src/chat/stop-generation.ts). `runChatTurn` `finally` clears that id unless a resumable `system` Stop so the **agent activity** fallback row cannot keep ticking after the turn. **Boot resume gate** ([`src/boot/resume-gate-boot.ts`](../src/boot/resume-gate-boot.ts), hold flag [`src/chat/resume-gate.ts`](../src/chat/resume-gate.ts)): on app open, asks before restarting an interrupted chat generation or unfinished tool batch — including after **Quit Minnow**, which cancels generations. Mid-turn work stamps persisted `chat.resumeInterrupted` ([`src/chat/resume-interrupted.ts`](../src/chat/resume-interrupted.ts)); Electron `before-quit` calls `__minnowPrepareForShutdown` so the marker is flushed before generations die. Chat-switch generation/tool resume no-ops while the gate is held. Under V2 the gate is chat-only: the client no longer resumes boards at boot, so there is nothing on this side to park — the server engine owns board lifecycle through its own journal + reconcile. **Agent activity panel** ([`src/ui/agent-activity-panel.ts`](../src/ui/agent-activity-panel.ts), OS menubar next to notifications): lists in-flight main turns, sub-agents, and title jobs across all apps. **Stop all** (footer, confirm via [`appConfirm`](../src/ui/app-dialog.ts)) calls [`stopAllAgentActivity`](../src/chat/stop-all-agent-activity.ts) to halt orchestrate boards, Super Plan, streaming chats, sub-agents, title jobs, and desktop research runs; `/loop` schedules are left running.
 

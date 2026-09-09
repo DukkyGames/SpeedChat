@@ -104,4 +104,14 @@ describe('stopGeneration', () => {
 
     assert.equal(chat.currentGenerationId, 'gen-live');
   });
+
+  test('an unknown explicit chat id does not stop the active chat', () => {
+    seedActiveChat();
+    const controller = new AbortController();
+    setChatAbort(FIXED_CHAT_ID, controller);
+
+    stopGeneration('22222222-2222-2222-2222-222222222222');
+
+    assert.equal(controller.signal.aborted, false);
+  });
 });

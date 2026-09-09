@@ -7,7 +7,7 @@ import { ensureAgentPacksLayout } from '../agent-packs/registry.js';
 import { ensureBenchmarkWorkspace } from '../benchmark-workspace/paths.js';
 import { ensureChatsWorkspace } from '../chats-workspace/paths.js';
 import { ensureSchedulerWorkspace } from '../scheduler-workspace/paths.js';
-import { ensureMinnowLayout, getMinnowHome } from '../config/home.js';
+import { ensureMinnowLayoutInitialized, getMinnowHome } from '../config/home.js';
 import { sweepCheckpoints } from '../generations/checkpoint.js';
 import { initLspConfig } from '../lsp/middleware.js';
 import { initMcpApi } from '../mcp/middleware.js';
@@ -28,7 +28,7 @@ import { recomputeAllNextRuns } from '../scheduler/store.js';
  * @returns {Promise<{ workspacePath: string, homePath: string }>}
  */
 export async function bootstrapMinnowRuntime() {
-  await ensureMinnowLayout();
+  await ensureMinnowLayoutInitialized();
   await ensureChatsWorkspace();
   await ensureBenchmarkWorkspace();
   await ensureSchedulerWorkspace();

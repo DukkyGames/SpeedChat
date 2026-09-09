@@ -11,13 +11,15 @@ import { initWorkspaceRoot, setWorkspaceRoot } from '../../server/workspace/root
 import { rmTestHome, setTestHome } from '../config/test-helpers.js';
 import {
   createBackgroundRun,
+  createRun,
+  getRun,
   listActiveRuns,
   readCommandLogSnapshot,
   stopActiveRun,
 } from '../../server/terminal-runner.js';
 import { toolStopBackgroundCommand } from '../../server/dev-server/manager.js';
 import { executeServerTool } from '../../server/runtime/tools-middleware.js';
-import { listWslDistros } from '../../server/terminal/wsl.js';
+import { listWslDistros, windowsPathToWslPath } from '../../server/terminal/wsl.js';
 import { spawnSync } from 'node:child_process';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -35,7 +37,11 @@ function wslLiveReady() {
   try {
     const probeList = spawnSync('wsl.exe', ['-l', '-q'], { timeout: 10_000, encoding: 'utf8' });
     if (probeList.status !== 0) return false;
-    const probe = spawnSync('wsl.exe', ['-e', 'true'], { timeout: 10_000 });
+    const probe = spawnSync(
+      'wsl.exe',
+      ['--cd', windowsPathToWslPath(repoRoot), '--', 'bash', '-lc', 'test -n "$HOME"'],
+      { timeout: 10_000 },
+    );
     return probe.status === 0;
   } catch {
     return false;
@@ -44,15 +50,14 @@ function wslLiveReady() {
 
 function wslShellProfile() {
   const { defaultDistro } = listWslDistros();
-  const distro = defaultDistro ?? 'Ubuntu';
   return {
-    id: `wsl:${distro}`,
-    label: `WSL ${distro}`,
+    id: defaultDistro ? `wsl:${defaultDistro}` : 'bash',
+    label: defaultDistro ? `WSL ${defaultDistro}` : 'WSL',
     shell: 'wsl.exe',
     args: [],
     platform: 'win32',
     runtime: 'wsl',
-    distro,
+    distro: defaultDistro ?? undefined,
   };
 }
 
@@ -94,9 +99,24 @@ describe('execute_command background lifecycle', () => {
     const stopped = await stopActiveRun(started.runId);
     assert.equal(stopped.ok, true);
 
-    await new Promise((r) => setTimeout(r, 500));
     const after = await readCommandLogSnapshot(started.runId);
     assert.equal(after.finished, true);
+  });
+
+  it('honors a stop requested while a foreground command is still starting', async () => {
+    const started = await createRun({
+      command: longRunningCommand(),
+      cwd: repoRoot,
+      shell: process.platform === 'win32',
+      source: 'agent',
+      timeoutMs: 120_000,
+    });
+
+    assert.equal(getRun(started.runId)?.child, null);
+    const stopped = await stopActiveRun(started.runId);
+    assert.equal(stopped.ok, true);
+    assert.equal(getRun(started.runId)?.finished, true);
+    assert.equal(getRun(started.runId)?.stoppedByUser, true);
   });
 
   it('executeServerTool background + read_command_log + list_running_commands', async () => {

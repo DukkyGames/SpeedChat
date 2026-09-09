@@ -17,6 +17,7 @@ import { endChatTurnSetup } from '../../src/chat/chat-turn-guard.ts';
 import { getChatAbort, setChatAbort, setStreaming } from '../../src/app-state.ts';
 import { DEFAULT_TITLES_CONFIG, setTitlesConfigForTests } from '../../src/config/titles-meta.ts';
 import { notifyChatStreamEnded } from '../../src/chat/streaming-state.ts';
+import { isChatStreaming } from '../../src/chat/streaming-state.ts';
 import { buildAgentActivitySnapshot } from '../../src/state/agent-activity-registry.ts';
 import { listMainTurnActivity } from '../../src/chat/main-turn-activity.ts';
 import {
@@ -109,6 +110,41 @@ describe('P6-D stream-end order (MIN-726)', () => {
     });
 
     assert.deepEqual(order, ['setStreaming(false)', 'notifyChatStreamEnded']);
+  });
+
+  test('background turns still register per-chat streaming activity', async () => {
+    setTitlesConfigForTests({ ...DEFAULT_TITLES_CONFIG, enabled: false });
+    installChatDom();
+    let registeredDuringRun = false;
+    setRunTurnForTests(async () => {
+      registeredDuringRun = isChatStreaming(CHAT_ID);
+      return { outcome: 'no_report' };
+    });
+
+    const chat = makeChat();
+    setSessionStateForTests({
+      version: 3,
+      activeId: chat.id,
+      sidebarCollapsed: false,
+      chats: [chat],
+    });
+
+    const pending = maybeRunChatTurnViaRunner({
+      chat,
+      pushUser: true,
+      rawText: 'Hi',
+      userText: 'Hi',
+      skillId: null,
+      historyContent: 'Hi',
+      validAttachments: [],
+      ownsGlobalStreaming: false,
+    });
+
+    assert.equal(isChatStreaming(CHAT_ID), true);
+    assert.ok(getChatAbort(CHAT_ID));
+    await pending;
+    assert.equal(registeredDuringRun, true);
+    assert.equal(isChatStreaming(CHAT_ID), false);
   });
 
   test('no_report restores idle composer and clears the main-turn activity fallback', async () => {

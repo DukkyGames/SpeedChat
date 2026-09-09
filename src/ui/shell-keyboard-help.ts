@@ -69,6 +69,7 @@ const ISSUES_SHORTCUTS: ShortcutDoc[] = [
   { section: 'Issues', keys: 'Y', label: 'Accept a triage issue (backlog)' },
   { section: 'Issues', keys: 'N / Backspace', label: 'Decline a triage issue (canceled)' },
   { section: 'Issues', keys: 'C', label: 'New issue' },
+  { section: 'Issues', keys: 'Ctrl/Cmd + I', label: 'Quick capture a new issue' },
   { section: 'Issues', keys: 'Alt + ArrowUp / ArrowDown', label: 'Move rank within the group or column' },
   { section: 'Issues', keys: 'Shift + ArrowLeft / ArrowRight', label: 'Move the card to the neighbouring board column' },
 ];

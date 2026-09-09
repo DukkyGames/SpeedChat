@@ -10,6 +10,9 @@ import {
   isChatColumnDragCollapsed,
   resetChatColumnDragCollapsedForTests,
   restoreChatColumnFromDrag,
+  showPreviewSplit,
+  showViewerSplit,
+  hideViewerSplit,
 } from '../../src/ui/file-layout.ts';
 import { restoreChatColumnOnChatSelect } from '../../src/ui/workspace-split-resize.ts';
 
@@ -96,6 +99,23 @@ describe('workspace split drag collapse', () => {
       document.getElementById('workspaceSplit')?.classList.contains('chat-column-collapsed'),
       false,
     );
+  });
+
+  test('switching preview and file tabs preserves a full-width pane until explicitly closed', () => {
+    patchFilePanelState({ rightPaneMode: 'preview', viewerOpen: true });
+    applyFileSidebarVisuals();
+    collapseChatColumnFromDrag();
+
+    for (const show of [showPreviewSplit, showViewerSplit, showViewerSplit, showPreviewSplit]) {
+      show();
+      assert.equal(isChatColumnDragCollapsed(), true);
+      assert.equal(document.getElementById('workspaceSplit')?.classList.contains('chat-column-collapsed'), true);
+    }
+
+    showViewerSplit();
+    hideViewerSplit({ skipPreviewFallback: true });
+    showViewerSplit();
+    assert.equal(isChatColumnDragCollapsed(), false, 'opening a closed pane restores the normal split');
   });
 
   test('restoreChatColumnOnChatSelect is a no-op when chat was not drag-collapsed', () => {

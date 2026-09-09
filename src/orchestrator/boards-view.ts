@@ -52,6 +52,7 @@ import {
 } from '../chat/plans/list-plans';
 import { button, el, empty, pill } from './dom';
 import { createIcon } from '../ui/icon';
+import { deferUntilContextMenuClosed } from '../ui/context-menu';
 import {
   attachV2BoardHeaderInstruments,
   detachV2BoardHeaderInstruments,
@@ -1093,6 +1094,9 @@ function restoreFocus(captured: { key: string; selectionStart: number | null } |
 
 function paintBoard(): void {
   if (!surface) return;
+  // Journal events can repaint the entire board while a task actions menu is
+  // open. Keep its anchor stable until the user dismisses or chooses an item.
+  if (deferUntilContextMenuClosed(paintBoard)) return;
   const pane = surface.boardPane;
 
   if (!selectedBoardId) {

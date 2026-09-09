@@ -404,6 +404,7 @@ function renderTaskCard(
   if (selected) card.classList.add('is-selected');
   const blocked = isBlocked(state, task);
   if (blocked) card.classList.add('ov2-task--blocked');
+  const activeAttempt = runningAttempt(task);
 
   const head = el('button', 'ov2-task__head');
   head.type = 'button';
@@ -423,7 +424,12 @@ function renderTaskCard(
   head.appendChild(el('span', 'ov2-task__title', task.title));
   const badges = el('span', 'ov2-task__badges');
   badges.appendChild(pill(phaseLabel(state, task), blocked ? 'warn' : PHASE_TONE[task.phase]));
-  if (task.outcome) badges.appendChild(pill(task.outcome, OUTCOME_TONE[task.outcome] ?? 'neutral'));
+  // `task.outcome` describes the previous ended attempt. Once a retry has
+  // started, showing that stale failure beside the live phase makes the new
+  // attempt look crashed too.
+  if (task.outcome && !activeAttempt) {
+    badges.appendChild(pill(task.outcome, OUTCOME_TONE[task.outcome] ?? 'neutral'));
+  }
   const retries = retryCount(task);
   if (retries > 0) {
     const badge = el('span', 'ov2-task__retries', retryLabel(retries));
@@ -438,7 +444,6 @@ function renderTaskCard(
     card.appendChild(el('p', 'ov2-task__blocked', `waiting on ${waiting.join(', ')}`));
   }
 
-  const activeAttempt = runningAttempt(task);
   if (activeAttempt) {
     card.appendChild(
       renderActivity(
@@ -467,7 +472,8 @@ function renderTaskCard(
  *
  * The spinner and the clock answer two different questions: the first says work
  * is happening at all, the second says whether it is stuck. A running attempt
- * with no live frame yet still gets both — it is starting, not idle.
+ * with no live frame yet still gets both. The durable attempt-started journal
+ * event proves it is running even when this client missed earlier live frames.
  */
 export function renderActivity(
   activity: LiveActivity | null,
@@ -500,7 +506,7 @@ export function renderActivity(
     label.textContent = activity.text;
     label.title = activity.text;
   } else {
-    label.textContent = 'Starting up';
+    label.textContent = 'Running';
   }
   row.appendChild(label);
 
@@ -525,7 +531,7 @@ function activityKindKey(activity: LiveActivity | null): string {
 function activityLabel(activity: LiveActivity | null): { text: string; title?: string } {
   if (activity?.kind === 'tool') return { text: humanizeToolName(activity.text) };
   if (activity?.kind === 'thinking') return { text: activity.text, title: activity.text };
-  return { text: 'Starting up' };
+  return { text: 'Running' };
 }
 
 function paintActivityGlyph(

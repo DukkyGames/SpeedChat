@@ -10,6 +10,7 @@ import { ensureMinnowLayout } from '../../server/config/home.js';
 import { writeConfigJson } from '../../server/config/store.js';
 import { createProvider } from '../../server/providers/store.js';
 import {
+  cancel,
   createGenerationState,
   getGenerationState,
 } from '../../server/generations/store.js';
@@ -215,6 +216,51 @@ describe('upstream failover', () => {
     assert.equal(terminal.totalBytes, 0);
 
     await new Promise((resolve) => emptyServer.close(resolve));
+  });
+
+  test('HTTP 200 HTML proxy pages are errors instead of successful generations', async () => {
+    resetHostCooldownForTests();
+    mock.method(globalThis, 'fetch', async () =>
+      new Response('<!doctype html><title>Proxy error</title>', {
+        status: 200,
+        headers: { 'Content-Type': 'text/html; charset=utf-8' },
+      }),
+    );
+    const state = createGenerationState({
+      providerId: 'primary-fixed',
+      body: { model: 'test-model', messages: [] },
+      candidates: [{ providerId: 'primary-fixed', modelId: 'test-model' }],
+    });
+
+    pumpUpstream({ state });
+    const terminal = await waitForTerminal(state.id);
+
+    assert.equal(terminal.status, 'error');
+    assert.equal(terminal.totalBytes, 0);
+    assert.match(terminal.errorMessage ?? '', /HTML error page/i);
+    mock.restoreAll();
+  });
+
+  test('a generation cancelled before the upstream attempt never fetches', async () => {
+    resetHostCooldownForTests();
+    let fetchCalls = 0;
+    mock.method(globalThis, 'fetch', async () => {
+      fetchCalls += 1;
+      return new Response('data: [DONE]\n\n');
+    });
+    const state = createGenerationState({
+      providerId: 'primary-fixed',
+      body: { model: 'test-model', messages: [] },
+      candidates: [{ providerId: 'primary-fixed', modelId: 'test-model' }],
+    });
+    cancel(state);
+
+    pumpUpstream({ state });
+    await new Promise((resolve) => setTimeout(resolve, 25));
+
+    assert.equal(state.status, 'cancelled');
+    assert.equal(fetchCalls, 0);
+    mock.restoreAll();
   });
 });
 

@@ -29,6 +29,8 @@ mock.module('../../src/models/model-select-library.ts', {
     LIBRARY_MODEL_OPTGROUP_LABEL: 'My Models',
     isLibraryModelProviderId: (providerId: string | undefined) =>
       providerId?.trim() === LIBRARY_PROVIDER_ID,
+    isLocalRuntimeCatalogProviderId: (providerId: string | undefined) =>
+      providerId?.trim() === 'llama-cpp-local' || providerId?.trim() === 'mlx-lm-local',
     isLibraryModelBinding: (providerId: string | undefined, modelId: string | undefined) => {
       const pid = providerId?.trim();
       const mid = modelId?.trim();

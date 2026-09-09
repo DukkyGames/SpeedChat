@@ -13,6 +13,7 @@ const { setIssuesStateForTests } = await import('../../src/state/issues-store.ts
 const { createIssuesLabelsField, closeIssuesLabelsSuggestionsMenu, filterIssueLabelSuggestions } = await import(
   '../../src/ui/issues-labels-field.ts'
 );
+const { deferUntilIssueLabelPopoverClosed } = await import('../../src/ui/issues-label-chip.ts');
 
 const FIXED_NOW = 1_710_000_000_000;
 
@@ -88,6 +89,44 @@ describe('issues labels field', () => {
     assert.ok(field.querySelector('.issues-labels-field__add'));
     assert.equal(field.querySelector(':scope > .issues-labels-field__input'), null);
     assert.ok(chips[0]?.getAttribute('data-swatch'));
+  });
+
+  test('form mounts before the store loads and reads fresh suggestions when opened', () => {
+    setIssuesStateForTests(null);
+    const field = createIssuesLabelsField({
+      issueId: 'new-issue', labels: [], variant: 'form', onChange: () => {},
+    });
+    document.body.appendChild(field);
+    seedIssue(['FRESH']);
+    field.querySelector<HTMLButtonElement>('.issues-labels-field__add')!.click();
+    assert.match(document.querySelector('.issues-labels-suggestions')?.textContent ?? '', /FRESH/);
+    closeIssuesLabelsSuggestionsMenu();
+    seedIssue(['UPDATED']);
+    field.querySelector<HTMLButtonElement>('.issues-labels-field__add')!.click();
+    const suggestions = document.querySelector('.issues-labels-suggestions')?.textContent ?? '';
+    assert.match(suggestions, /UPDATED/);
+    assert.doesNotMatch(suggestions, /FRESH/);
+  });
+
+  test('coalesces refresh callbacks until a body-mounted popover closes', async () => {
+    const field = createIssuesLabelsField({
+      issueId: 'popover-refresh',
+      labels: [],
+      variant: 'form',
+      onChange: () => {},
+    });
+    document.body.appendChild(field);
+    field.querySelector<HTMLButtonElement>('.issues-labels-field__add')!.click();
+
+    let refreshes = 0;
+    const refresh = () => { refreshes += 1; };
+    assert.equal(deferUntilIssueLabelPopoverClosed(refresh), true);
+    assert.equal(deferUntilIssueLabelPopoverClosed(refresh), true);
+    assert.equal(refreshes, 0);
+
+    closeIssuesLabelsSuggestionsMenu();
+    await Promise.resolve();
+    assert.equal(refreshes, 1);
   });
 
   test('caret opens a popover with the remaining labels', () => {

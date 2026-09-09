@@ -30,7 +30,10 @@ import {
 } from '../../src/chat/context/estimate-calibration.ts';
 import { contextLengthFromModelRow } from '../../src/lib/context-length.ts';
 import type { Chat } from '../../src/types.ts';
-import { computeOutboundPromptEstimateFromParts } from '../../src/chat/prompts/token-estimate-core.ts';
+import {
+  computeOutboundPromptEstimateFromParts,
+  ESTIMATE_IMAGE_URL_TOKENS,
+} from '../../src/chat/prompts/token-estimate-core.ts';
 import type { Attachment, Message } from '../../src/types.ts';
 
 describe('estimateAttachmentTokens', () => {
@@ -62,7 +65,7 @@ describe('estimateAttachmentTokens', () => {
     assert.equal(estimateAttachmentTokens(attachments), 0);
   });
 
-  test('caps image dataUrl at fixed per-image budget (not full base64)', () => {
+  test('uses the bounded fallback image budget for undecodable data URLs', () => {
     const attachments: Attachment[] = [
       {
         id: 'img1',
@@ -73,7 +76,7 @@ describe('estimateAttachmentTokens', () => {
         dataUrl: `data:image/png;base64,${'A'.repeat(40_000)}`,
       },
     ];
-    assert.equal(estimateAttachmentTokens(attachments), 256);
+    assert.equal(estimateAttachmentTokens(attachments), ESTIMATE_IMAGE_URL_TOKENS);
   });
 });
 

@@ -104,6 +104,7 @@ Shortcuts apply when Issues is open and you are not typing in a field.
 | **Y** | Accept a triage issue |
 | **N** / **Backspace** | Decline a triage issue |
 | **C** | New issue |
+| **Ctrl/Cmd + I** | Quick capture a new issue outside text inputs |
 | **E** | Expand the focused issue (title and description) |
 | **Alt+↑** / **Alt+↓** | Move rank within the group or column |
 | **Shift+←** / **Shift+→** | Move the card to the neighbouring board column |

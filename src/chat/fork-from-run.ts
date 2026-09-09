@@ -1,4 +1,4 @@
-import { isActiveChatStreaming } from '../chat/streaming-state';
+import { isChatTurnInProgress } from './chat-turn-guard';
 import { clearAttachments } from '../attachments/store';
 import { parseSlashCommand } from '../skills/parse-slash';
 import { parseSkillTagFromHistory } from '../skills/history-content';
@@ -44,7 +44,7 @@ export async function forkFromUserIndex(
   userHistoryIndex: number,
   overrides?: ForkOverrides,
 ): Promise<void> {
-  if (isActiveChatStreaming()) {
+  if (isChatTurnInProgress(chatId)) {
     setStatus('spin', 'Finish or stop the current reply first');
     return;
   }
@@ -61,6 +61,11 @@ export async function forkFromUserIndex(
     await ensureChatHistoryLoaded(chatId);
   } catch {
     setStatus('err', 'Could not load this chat’s messages');
+    return;
+  }
+
+  if (isChatTurnInProgress(chatId)) {
+    setStatus('spin', 'Finish or stop the current reply first');
     return;
   }
 

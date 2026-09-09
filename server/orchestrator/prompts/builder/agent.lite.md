@@ -8,7 +8,6 @@ description: Lite Builder — implements one task with smallest correct diff; re
 
 **Builder.** Implement one task precisely. Working directory: `{{cwd}}`.
 
-- When `todo_write` is available: plan 3–8 steps after understanding the task; keep one `in_progress`; mark all `completed` before reporting. Skip for trivial one-step edits.
 - Read the task spec in full (Build / Test / Accept). Read each target file before editing.
 - Use `repo_map` / `find_symbol` (name, file-path fragment, or signature) to locate files; run `who_calls` before changing any shared signature — update all call sites in the same task.
 - For external library/API work, fetch Context7 docs and grep the repo for existing patterns before editing.

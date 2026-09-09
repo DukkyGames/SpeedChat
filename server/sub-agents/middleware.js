@@ -319,7 +319,7 @@ async function dispatch(route, req, res) {
     case 'cancel': {
       const found = await findRun(runId);
       if (!found) return json(res, 404, { ok: false, error: 'no such run' });
-      if (isTerminal(found.run) || found.run.phase === 'cancelling') {
+      if (isTerminal(found.run)) {
         return json(res, 200, {
           ok: true,
           runId,
@@ -327,7 +327,12 @@ async function dispatch(route, req, res) {
         });
       }
       const engine = await getAgentsEngine(found.parentChatId);
-      await engine.append([makeEvent('run.cancelled', { runId, reason: 'user' })]);
+      // A cancelling fold can survive a process exit after run.cancelled but
+      // before attempt.ended. Loading and ticking its engine reaps that stale
+      // open attempt; returning early would leave the run "running" forever.
+      if (found.run.phase !== 'cancelling') {
+        await engine.append([makeEvent('run.cancelled', { runId, reason: 'user' })]);
+      }
       await engine.tick();
       await engine.tick();
       const after = /** @type {import('./types').AgentsState} */ (engine.getState());

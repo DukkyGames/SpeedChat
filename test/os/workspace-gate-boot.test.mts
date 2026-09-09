@@ -7,6 +7,7 @@ function setupShellDom() {
   globalThis.window = window;
   globalThis.document = window.document;
   globalThis.performance = window.performance;
+  globalThis.HTMLElement = window.HTMLElement;
   return window;
 }
 
@@ -14,8 +15,10 @@ const { isPageReload } = await import('../../src/boot/page-navigation.ts');
 
 const {
   finishWorkspaceGateSwitch,
+  isHoldingWorkspaceGateForAppReady,
   isWorkspaceGateOpen,
   mountWorkspaceGateDom,
+  onWorkspaceGateChosen,
   openWorkspaceGate,
   resetWorkspaceGateForTests,
   shouldBlockBootOnWorkspaceGate,
@@ -88,5 +91,28 @@ describe('workspace-gate boot', { concurrency: false }, () => {
       document.documentElement.classList.contains('os-workspace-gate-holding'),
       false,
     );
+  });
+
+  test('late workspace pick after reload closes without holding for app ready', async () => {
+    const window = setupShellDom();
+    resetWorkspaceGateForTests();
+    const rafShim = (cb: FrameRequestCallback) => {
+      cb(0);
+      return 1;
+    };
+    window.requestAnimationFrame = rafShim;
+    globalThis.requestAnimationFrame = rafShim;
+    globalThis.fetch = async () => new Response('{}');
+    window.document.body.innerHTML = `
+      <div id="osWorkspaceGate" hidden></div>
+      <div id="welcomeView" hidden></div>
+    `;
+    mountWorkspaceGateDom();
+    openWorkspaceGate();
+
+    await onWorkspaceGateChosen();
+
+    assert.equal(isHoldingWorkspaceGateForAppReady(), false);
+    assert.equal(isWorkspaceGateOpen(), false);
   });
 });

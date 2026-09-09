@@ -299,6 +299,42 @@ describe('renderTaskList', () => {
     assert.ok(activity.querySelector('.tool-call-spinner'), 'a running tool spins');
   });
 
+  test('a reconnected running card uses durable state without stale startup or crash labels', () => {
+    setupDom();
+    const state = board([
+      {
+        v: 1,
+        seq: 8,
+        type: 'task.attempt.ended',
+        taskId: 'W1-D',
+        attemptId: 'd1',
+        role: 'builder',
+        outcome: 'crashed',
+      },
+      {
+        v: 1,
+        seq: 9,
+        type: 'task.attempt.started',
+        taskId: 'W1-D',
+        attemptId: 'd2',
+        role: 'builder',
+        seedKind: 'continue',
+      },
+    ]);
+    const node = renderTaskList(state, NO_ACTIONS, {
+      ...OPTIONS,
+      // A reconnect restores this timestamp from the snapshot, but transient
+      // thinking/tool frames are not replayed.
+      attemptStartedAt: new Map([['d2', 1_000]]),
+      now: 96_000,
+    });
+    const card = node.querySelector('[data-task-id="W1-D"]')!;
+    assert.equal(card.querySelector('.ov2-activity__label')!.textContent, 'Running');
+    assert.equal(card.querySelector('.ov2-activity__elapsed')!.textContent, '1:35');
+    assert.doesNotMatch(card.querySelector('.ov2-task__badges')!.textContent!, /crashed/i);
+    assert.equal(card.querySelector('.ov2-task__retries')!.textContent, '1 retry');
+  });
+
   test('a thinking agent says what it is thinking, not the last tool it touched', () => {
     setupDom();
     const state = board();

@@ -68,7 +68,7 @@ describe('sub-agent runner transient fetch retry', () => {
     setRuntimeSubAgentOverrides(null);
   });
 
-  test('retries work turn after Failed to fetch on generation stream subscribe', async () => {
+  test('re-subscribes to the same generation after Failed to fetch', async () => {
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
 
@@ -132,7 +132,7 @@ describe('sub-agent runner transient fetch retry', () => {
     });
 
     assert.equal(streamAttempts, 2, 'should retry stream subscribe once');
-    assert.equal(generationPosts, 2, 'should create a fresh generation on retry');
+    assert.equal(generationPosts, 1, 'transport reconnect should keep the backend generation');
     assert.equal(out.structuredOutcome?.summary, 'Done');
   });
 

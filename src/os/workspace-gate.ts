@@ -148,7 +148,19 @@ export function closeWorkspaceGate(): void {
  * cover until `revealAppAfterWorkspaceGate()` after first paint.
  */
 export async function onWorkspaceGateChosen(): Promise<void> {
+  // Route sync can reopen the picker after reload, when initApp has already
+  // completed and there is no boot waiter to cover. Use the switch path in
+  // that case instead of reintroducing an opaque cold-boot cover.
+  const waitingForBootHandoff = Boolean(bootGatePromise);
   markWorkspaceGatePassedThisSession();
+  if (!waitingForBootHandoff) {
+    if (getOsView() === 'workspaces' || window.location.hash.startsWith('#/workspaces')) {
+      launchApp('code');
+    }
+    await finishWorkspaceGateSwitch();
+    return;
+  }
+
   setHoldingGateCover(true);
   showGateElement();
   resolveBootGate?.();

@@ -21,6 +21,15 @@ function notifyPendingMessageQueueChanged(): void {
   queueChangedListener?.();
 }
 
+function restoreDequeuedMessage(chat: Chat, item: QueuedComposerMessage): void {
+  const queue = getPendingMessageQueue(chat);
+  if (queue.some((entry) => entry.id === item.id)) return;
+  chat.pendingMessageQueue = [item, ...queue];
+  touchChat(chat);
+  scheduleSaveSessions();
+  notifyPendingMessageQueueChanged();
+}
+
 /** Return the chat queue array (empty when unset). */
 export function getPendingMessageQueue(chat: Chat): QueuedComposerMessage[] {
   return Array.isArray(chat.pendingMessageQueue) ? chat.pendingMessageQueue : [];
@@ -117,9 +126,12 @@ export function pushQueuedMessageNow(chat: Chat, id: string): boolean {
     return enqueueSteerMessage(chat, item.text);
   }
 
-  void import('./run-turn-chat').then(({ resumeParentChatWithMessage }) =>
-    resumeParentChatWithMessage(chat, item.text),
-  );
+  void import('./run-turn-chat')
+    .then(({ resumeParentChatWithMessage }) => resumeParentChatWithMessage(chat, item.text))
+    .then((accepted) => {
+      if (!accepted) restoreDequeuedMessage(chat, item);
+    })
+    .catch(() => restoreDequeuedMessage(chat, item));
   return true;
 }
 
@@ -143,8 +155,14 @@ export async function flushPendingMessageQueue(chat: Chat): Promise<void> {
   notifyPendingMessageQueueChanged();
   if (!item?.text.trim()) return;
 
-  const { resumeParentChatWithMessage } = await import('./run-turn-chat');
-  await resumeParentChatWithMessage(chat, item.text);
+  try {
+    const { resumeParentChatWithMessage } = await import('./run-turn-chat');
+    const accepted = await resumeParentChatWithMessage(chat, item.text);
+    if (!accepted) restoreDequeuedMessage(chat, item);
+  } catch (err) {
+    restoreDequeuedMessage(chat, item);
+    throw err;
+  }
 }
 
 /** @internal Test hook — append a queue row with a fixed id. */

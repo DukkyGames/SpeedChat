@@ -1,4 +1,4 @@
-import { isChatStreaming } from '../chat/streaming-state';
+import { isChatTurnInProgress } from './chat-turn-guard';
 import {
   findChatById,
   getActiveChat,
@@ -45,7 +45,7 @@ export function truncateChatHistory(
   cutIndex: number,
   mode: TruncateMode,
 ): TruncateResult {
-  if (isChatStreaming(chatId)) {
+  if (isChatTurnInProgress(chatId)) {
     return { ok: false, error: 'streaming' };
   }
 

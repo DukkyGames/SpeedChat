@@ -145,25 +145,139 @@ async function consumeSseBlocks(
   onBlock: (block: string) => 'continue' | 'stop',
 ): Promise<'continue' | 'stop'> {
   let sinceYield = 0;
-  let endIndex = bufferRef.value.indexOf('\n\n');
-  while (endIndex >= 0) {
+  let boundary = findSseBoundary(bufferRef.value);
+  while (boundary) {
     if (cancelled()) return 'stop';
-    const block = bufferRef.value.slice(0, endIndex);
-    bufferRef.value = bufferRef.value.slice(endIndex + 2);
+    const block = bufferRef.value.slice(0, boundary.index);
+    bufferRef.value = bufferRef.value.slice(boundary.index + boundary.length);
     const action = onBlock(block);
     if (action === 'stop') return 'stop';
     if (block.trim()) {
       sinceYield += 1;
       if (sinceYield >= SSE_BLOCKS_PER_YIELD) {
         sinceYield = 0;
-        if (bufferRef.value.indexOf('\n\n') >= 0) {
+        if (findSseBoundary(bufferRef.value)) {
           await yieldForSseBurst();
         }
       }
     }
-    endIndex = bufferRef.value.indexOf('\n\n');
+    boundary = findSseBoundary(bufferRef.value);
   }
   return 'continue';
+}
+
+class GenerationStreamHttpError extends Error {
+  constructor(readonly status: number, detail: string) {
+    super(`HTTP ${status}: ${detail}`);
+    this.name = 'GenerationStreamHttpError';
+  }
+}
+
+function findSseBoundary(text: string): { index: number; length: number } | null {
+  const match = /\r\n\r\n|\r\n\n|\n\r\n|\n\n|\r\r/.exec(text);
+  return match ? { index: match.index, length: match[0].length } : null;
+}
+
+const GENERATION_STREAM_RECONNECT_ATTEMPTS = 1;
+
+async function consumeGenerationStream(
+  generationId: string,
+  signal: AbortSignal,
+  cancelled: () => boolean,
+  handlers: {
+    onStreamOpen?: () => void;
+    onBlock: (block: string) => void;
+    onEnd: (event: GenerationEndEvent) => void;
+  },
+): Promise<void> {
+  let deliveredBlocks = 0;
+  let notifiedOpen = false;
+
+  for (let attempt = 0; attempt <= GENERATION_STREAM_RECONNECT_ATTEMPTS; attempt += 1) {
+    let replayBlock = 0;
+    try {
+      const res = await fetch(`/api/generations/${generationId}/stream`, {
+        method: 'GET',
+        signal,
+      });
+
+      if (res.status === 404) throw new GenerationNotFoundError();
+      if (!res.ok) throw new GenerationStreamHttpError(res.status, await res.text());
+      if (!res.body) throw new Error('Missing response body');
+
+      if (!notifiedOpen) {
+        notifiedOpen = true;
+        handlers.onStreamOpen?.();
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      const bufferRef = { value: '' };
+      let reachedEof = false;
+
+      const acceptBlock = (block: string): 'continue' | 'stop' => {
+        const endPayload = parseEndEventBlock(block);
+        if (endPayload) {
+          handlers.onEnd(endPayload);
+          return 'stop';
+        }
+        if (!block.trim()) return 'continue';
+        replayBlock += 1;
+        if (replayBlock <= deliveredBlocks) return 'continue';
+        handlers.onBlock(block);
+        deliveredBlocks += 1;
+        return 'continue';
+      };
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            reachedEof = true;
+            break;
+          }
+          if (cancelled()) return;
+          bufferRef.value += decoder.decode(value, { stream: true });
+          const consumed = await consumeSseBlocks(bufferRef, cancelled, acceptBlock);
+          if (consumed === 'stop' || cancelled()) return;
+        }
+
+        bufferRef.value += decoder.decode();
+        const consumed = await consumeSseBlocks(bufferRef, cancelled, acceptBlock);
+        if (consumed === 'stop' || cancelled()) return;
+
+        if (bufferRef.value.trim()) {
+          const endPayload = parseEndEventBlock(bufferRef.value);
+          if (endPayload) {
+            handlers.onEnd(endPayload);
+            return;
+          }
+        }
+        throw new Error('Generation stream ended before the terminal event');
+      } finally {
+        if (!reachedEof) {
+          try {
+            await reader.cancel?.();
+          } catch {
+          }
+        }
+        try {
+          reader.releaseLock?.();
+        } catch {
+        }
+      }
+    } catch (err) {
+      if (cancelled()) return;
+      if (
+        signal.aborted ||
+        err instanceof GenerationNotFoundError ||
+        (err instanceof GenerationStreamHttpError && err.status < 500)
+      ) {
+        throw err;
+      }
+      if (attempt >= GENERATION_STREAM_RECONNECT_ATTEMPTS) throw err;
+    }
+  }
 }
 
 export interface SubscribeToGenerationOptions {
@@ -190,64 +304,14 @@ export function subscribeToGeneration(
 
   void (async () => {
     try {
-      const res = await fetch(`/api/generations/${generationId}/stream`, {
-        method: 'GET',
-        signal: combined,
+      await consumeGenerationStream(generationId, combined, () => cancelled, {
+        onStreamOpen: options.onStreamOpen,
+        onBlock: (block) => feedSseBlock(block, options.onChunk),
+        onEnd: (event) => options.onEnd?.(event),
       });
-
-      if (res.status === 404) {
-        throw new GenerationNotFoundError();
-      }
-
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`HTTP ${res.status}: ${err}`);
-      }
-
-      options.onStreamOpen?.();
-
-      if (!res.body) {
-        throw new Error('Missing response body');
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      const bufferRef = { value: '' };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (cancelled) return;
-
-        bufferRef.value += decoder.decode(value, { stream: true });
-
-        const consumed = await consumeSseBlocks(bufferRef, () => cancelled, (block) => {
-          const endPayload = parseEndEventBlock(block);
-          if (endPayload) {
-            options.onEnd?.(endPayload);
-            return 'stop';
-          }
-          if (block.trim()) {
-            feedSseBlock(block, options.onChunk);
-          }
-          return 'continue';
-        });
-        if (consumed === 'stop' || cancelled) return;
-      }
-
-      if (bufferRef.value.trim()) {
-        const endPayload = parseEndEventBlock(bufferRef.value);
-        if (endPayload) {
-          options.onEnd?.(endPayload);
-          return;
-        }
-        feedSseBlock(bufferRef.value, options.onChunk);
-      }
-
-      options.onEnd?.();
     } catch (err) {
       if (cancelled) return;
-      if (err instanceof DOMException && err.name === 'AbortError') {
+      if (combined.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         options.onAbort?.();
         return;
       }
@@ -285,63 +349,15 @@ export function subscribeToGenerationRaw(
 
   void (async () => {
     try {
-      const res = await fetch(`/api/generations/${generationId}/stream`, {
-        method: 'GET',
-        signal: combined,
+      await consumeGenerationStream(generationId, combined, () => cancelled, {
+        onBlock: (block) => {
+          handlers.onChunk(`${block.replace(/[\r\n]+$/, '')}\n\n`);
+        },
+        onEnd: (event) => handlers.onEnd?.(event),
       });
-
-      if (res.status === 404) {
-        throw new GenerationNotFoundError();
-      }
-
-      if (!res.ok) {
-        const err = await res.text();
-        throw new Error(`HTTP ${res.status}: ${err}`);
-      }
-
-      if (!res.body) {
-        throw new Error('Missing response body');
-      }
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      const bufferRef = { value: '' };
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        if (cancelled) return;
-
-        bufferRef.value += decoder.decode(value, { stream: true });
-
-        const consumed = await consumeSseBlocks(bufferRef, () => cancelled, (block) => {
-          const endPayload = parseEndEventBlock(block);
-          if (endPayload) {
-            handlers.onEnd?.(endPayload);
-            return 'stop';
-          }
-          if (block.trim()) {
-            const framed = `${block.replace(/\n+$/, '')}\n\n`;
-            handlers.onChunk(framed);
-          }
-          return 'continue';
-        });
-        if (consumed === 'stop' || cancelled) return;
-      }
-
-      if (bufferRef.value.trim()) {
-        const endPayload = parseEndEventBlock(bufferRef.value);
-        if (endPayload) {
-          handlers.onEnd?.(endPayload);
-          return;
-        }
-        handlers.onChunk(`${bufferRef.value.replace(/\n+$/, '')}\n\n`);
-      }
-
-      handlers.onEnd?.();
     } catch (err) {
       if (cancelled) return;
-      if (err instanceof DOMException && err.name === 'AbortError') {
+      if (combined.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         handlers.onAbort?.();
         return;
       }
@@ -377,25 +393,25 @@ function feedSseBlock(block: string, onChunk: (chunk: ChatCompletionChunk) => vo
 }
 
 function parseEndEventBlock(block: string): GenerationEndEvent | null {
-  const lines = block.split('\n');
+  const lines = block.split(/\r\n|\r|\n/);
   let eventName: string | null = null;
-  let dataLine: string | null = null;
+  const dataLines: string[] = [];
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith('event:')) {
       eventName = trimmed.slice(6).trim();
     } else if (trimmed.startsWith('data:')) {
-      dataLine = trimmed.slice(5).trim();
+      dataLines.push(trimmed.slice(5).trim());
     }
   }
 
-  if (eventName !== 'end' || !dataLine) {
+  if (eventName !== 'end' || dataLines.length === 0) {
     return null;
   }
 
   try {
-    const parsed = JSON.parse(dataLine) as GenerationEndEvent;
+    const parsed = JSON.parse(dataLines.join('\n')) as GenerationEndEvent;
     if (
       parsed.status === 'complete' ||
       parsed.status === 'error' ||

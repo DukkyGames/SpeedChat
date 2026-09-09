@@ -76,7 +76,7 @@ import type {
 import { isTypingTarget } from './a11y/typing-target';
 import { appConfirm, appPrompt, isAppDialogOpen } from './app-dialog';
 import { registerCommandSource } from './command-registry';
-import { isContextMenuOpen } from './context-menu';
+import { deferUntilContextMenuClosed, isContextMenuOpen } from './context-menu';
 import { ensureIssuesChrome } from './issues-chrome';
 import {
   closeIssuesFileDrawer,
@@ -126,6 +126,7 @@ import {
 } from './issues-labels-field';
 import {
   createIssueLabelsDisplay,
+  deferUntilIssueLabelPopoverClosed,
   isIssuesLabelPopoverFocused,
 } from './issues-label-chip';
 import {
@@ -1622,6 +1623,8 @@ function renderBoard(mount: HTMLElement, issues: IssueCard[]): void {
 
 /** Rebuild list or board from current filters. */
 export function renderIssuesPanel(): void {
+  if (deferUntilContextMenuClosed(renderIssuesPanel)) return;
+  if (deferUntilIssueLabelPopoverClosed(renderIssuesPanel)) return;
   const root = getRoot();
   if (root) ensureIssuesChrome(root);
   const mount = getMount();
@@ -2389,6 +2392,7 @@ async function openIssueAgentChat(issueId: string): Promise<void> {
 /** Issues keyboard map (suppressed by isTypingTarget): j/k or arrows — move selection Enter — peek; Escape — restore expanded peek, then close peek / clear multi-select s status, p priority, u assignee, l labels, g project A — assign an agent (plan, board, worktree, PR); answer it when it is waiting Y — accept triage (backlog + triagedAt) N or Backspace — decline triage when the focused card is unreviewed C — new issue E — expand focused issue (sparkles rewrite) Alt+↑/↓ — rank within the group/column Shift+←/→ — move board column (status) / */
 function onIssuesKeydown(event: KeyboardEvent): void {
   if (!isIssuesPageOpen()) return;
+  if (event.defaultPrevented || event.ctrlKey || event.metaKey) return;
   if (isTypingTarget(event.target)) return;
   if (isContextMenuOpen() || isAppDialogOpen()) return;
   if (isIssueExpandOverlayOpen()) {
@@ -2403,6 +2407,7 @@ function onIssuesKeydown(event: KeyboardEvent): void {
     moveRank(event.key === 'ArrowUp' ? -1 : 1);
     return;
   }
+  if (event.altKey) return;
   if (event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
     event.preventDefault();
     moveBoardColumn(event.key === 'ArrowLeft' ? -1 : 1);

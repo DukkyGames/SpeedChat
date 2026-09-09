@@ -48,6 +48,7 @@ describe('message-queue helpers', () => {
 
   afterEach(() => {
     setStreaming(false);
+    setChatAbort(FIXED_CHAT_ID, null);
     endChatTurnSetup(FIXED_CHAT_ID);
     flushScheduledSessionSaveForTests();
     setPendingMessageQueueChangedListener(null);
@@ -123,5 +124,16 @@ describe('message-queue helpers', () => {
     const ok = pushQueuedMessageNow(chat, id);
     assert.equal(ok, true);
     assert.equal(chat.pendingSteerMessage, QUEUE_TEXT);
+  });
+
+  test('flush restores a follow-up when another turn has already claimed the chat', async () => {
+    const chat = seedChat();
+    enqueueComposerMessage(chat, QUEUE_TEXT);
+    assert.equal(beginChatTurnSetup(chat.id), true);
+
+    await flushPendingMessageQueue(chat);
+
+    assert.equal(getPendingMessageQueueCount(chat), 1);
+    assert.equal(chat.pendingMessageQueue?.[0]?.text, QUEUE_TEXT);
   });
 });

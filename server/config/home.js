@@ -11,6 +11,8 @@ import { defaultServersConfig } from './validators.js';
 
 /** Cached resolved home path for this process. */
 let cachedHome = null;
+/** Cached one-time layout initialization for the active home. */
+let layoutInitialization = null;
 
 const LEGACY_DIR_NAME = '.speedchat';
 const HOME_DIR_NAME = '.minnow';
@@ -49,6 +51,7 @@ export function getMinnowHome() {
 /** Reset cached home (tests only). */
 export function resetMinnowHomeCache() {
   cachedHome = null;
+  layoutInitialization = null;
 }
 
 /** @deprecated Use getMinnowHome */
@@ -512,6 +515,28 @@ export async function ensureMinnowLayout() {
   await ensureBrainStore();
 
   return home;
+}
+
+/**
+ * Initialize the active home once for startup and readiness checks.
+ * Other callers keep using ensureMinnowLayout so they can repair deleted files.
+ * A failed attempt is evicted so the next request can retry.
+ * @returns {Promise<string>} Resolved home path
+ */
+export function ensureMinnowLayoutInitialized() {
+  const home = getMinnowHome();
+  if (layoutInitialization?.home === home) {
+    return layoutInitialization.promise;
+  }
+
+  const promise = ensureMinnowLayout();
+  layoutInitialization = { home, promise };
+  void promise.catch(() => {
+    if (layoutInitialization?.promise === promise) {
+      layoutInitialization = null;
+    }
+  });
+  return promise;
 }
 
 /** @deprecated Use ensureMinnowLayout */

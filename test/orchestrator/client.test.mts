@@ -758,7 +758,7 @@ describe('the renderer writes nothing', () => {
 
   it('has no renderer module that writes board state', () => {
     const forbidden: Array<[RegExp, string]> = [
-      [/\.phase\s*=[^=]/, 'assigns to a task phase'],
+      [/(?<!\.dataset)\.phase\s*=[^=]/, 'assigns to a task phase'],
       [/\.status\s*=\s*['"`](running|stopped|created)/, 'assigns a board status'],
       [/\.mergeQueue\s*[.=]\s*(push|splice|=)/, 'writes the merge queue'],
       [/\.attempts\.(push|splice|pop|shift)/, 'writes an attempt list'],

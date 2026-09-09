@@ -27,9 +27,14 @@ const LLAMA_CPP_400 =
   'Upstream HTTP 400: request (104264 tokens) exceeds the available context size ' +
   '(89088 tokens), try increasing it';
 
+/** Verbatim error message from the 2026-09-09 local Qwen failure artifact. */
+const LLAMA_CPP_EXCEED_CONTEXT_ERROR =
+  'request (69351 tokens) exceeds the available context size (58368 tokens), try increasing it';
+
 describe('isContextOverflowText', () => {
   test("matches llama.cpp's wording", () => {
     assert.equal(isContextOverflowText(LLAMA_CPP_400), true);
+    assert.equal(isContextOverflowText(LLAMA_CPP_EXCEED_CONTEXT_ERROR), true);
   });
 
   test('matches OpenAI and Anthropic wordings', () => {
@@ -58,6 +63,13 @@ describe('parseContextOverflowNumbers', () => {
     assert.deepEqual(parseContextOverflowNumbers(LLAMA_CPP_400), {
       requestTokens: 104264,
       limitTokens: 89088,
+    });
+  });
+
+  test('recovers the exact local Qwen overflow measurements', () => {
+    assert.deepEqual(parseContextOverflowNumbers(LLAMA_CPP_EXCEED_CONTEXT_ERROR), {
+      requestTokens: 69351,
+      limitTokens: 58368,
     });
   });
 

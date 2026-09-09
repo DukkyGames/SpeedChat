@@ -37,7 +37,7 @@ function shellCommands(): Command[] {
       title: 'New issue from here',
       group: 'Shell',
       keywords: 'issue capture file bug report quick',
-      shortcut: 'Alt+C',
+      shortcut: 'Ctrl/Cmd+I',
       run: () => {
         void import('./issue-capture').then((m) => m.openQuickCapture());
       },

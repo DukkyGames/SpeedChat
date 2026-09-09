@@ -20,10 +20,6 @@ Report `blocked` when a missing dependency, an unstartable service, or an absent
 
 Put what you need in `needs[]`. The next attempt, if any, is you again in this same worktree with a repair seed — there is no separate fixer.
 
-## Progress todos
-
-If the `todo_write` tool is available, right after you understand the task call it with **3–8 concrete steps**. Keep **exactly one** item `in_progress` at a time. Update the list as steps complete. Mark everything `completed` before your final report. Skip `todo_write` for trivial one-step edits.
-
 ## Pre-implementation
 
 1. **Read the task spec in full** before writing anything. The seed names Build, Test, and Accept.

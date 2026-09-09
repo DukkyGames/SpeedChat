@@ -9,7 +9,7 @@ import {
   normalizeIssueLabelsList,
   splitIssueLabelsForList,
 } from '../issues/label-catalog';
-import { collectIssueLabelSuggestions, normalizeIssueLabel } from '../state/issues-store';
+import { collectIssueLabelSuggestions, isIssuesStoreLoaded, normalizeIssueLabel } from '../state/issues-store';
 import {
   applyIssueLabelSwatch,
   closeIssueLabelPopovers,
@@ -76,7 +76,6 @@ export function createIssuesLabelsField(options: IssuesLabelsFieldOptions): HTML
   root.setAttribute('aria-label', 'Labels');
 
   let currentLabels = normalizeIssueLabelsList(options.labels);
-  const suggestions = collectIssueLabelSuggestions(options.issueId);
 
   const chipsHost = document.createElement('div');
   chipsHost.className = 'issues-labels-field__chips';
@@ -205,6 +204,7 @@ export function createIssuesLabelsField(options: IssuesLabelsFieldOptions): HTML
   };
 
   const refreshSuggestions = (): void => {
+    const suggestions = isIssuesStoreLoaded() ? collectIssueLabelSuggestions(options.issueId) : [];
     visibleSuggestions = filterIssueLabelSuggestions(suggestions, currentLabels, input.value);
     const typed = normalizeIssueLabel(input.value);
     const typedKey = typed?.toLowerCase() ?? '';

@@ -84,6 +84,8 @@ mock.module('../../src/models/model-select-library.ts', {
     libraryModelLoadState: () => 'not loaded' as const,
     isLibraryModelProviderId: (id: string) => id === 'minnow-library',
     isLibraryModelBinding: () => false,
+    isLocalRuntimeCatalogProviderId: (id: string | undefined) =>
+      id === 'llama-cpp-local' || id === 'mlx-lm-local',
     resolveUpstreamProviderId: (providerId: string) => providerId,
     encodeLibraryModelSelectKey: () => '',
     decodeLibraryModelSelectKey: () => null,
@@ -128,6 +130,21 @@ describe('settings-model-binding library roster', () => {
     assert.ok(ids.includes('openai'));
     assert.ok(ids.includes(LIBRARY_MODEL_PROVIDER_ID));
     assert.equal(select.value, LIBRARY_MODEL_PROVIDER_ID);
+  });
+
+  test('fillProviderSelect can put My Models first and omit local runtimes', async () => {
+    const { fillProviderSelect } = await import('../../src/ui/settings-model-binding.ts');
+    const select = document.createElement('select');
+    await fillProviderSelect(select, LIBRARY_MODEL_PROVIDER_ID, {
+      includeEmptyOption: false,
+      includeLibraryProvider: true,
+      omitLocalRuntimeProviders: true,
+      libraryProviderFirst: true,
+    });
+    const ids = Array.from(select.options).map((opt) => opt.value);
+    assert.equal(ids[0], LIBRARY_MODEL_PROVIDER_ID);
+    assert.equal(ids.includes('llama-cpp-local'), false);
+    assert.ok(ids.includes('openai'));
   });
 
   test('fetchAllCatalogRosterTargets merges registry models with My Models rows', async () => {

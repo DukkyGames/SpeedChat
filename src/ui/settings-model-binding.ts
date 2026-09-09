@@ -3,6 +3,7 @@ import { formatModelLabel } from '../lib/format-model-label';
 import {
   omitLocalRuntimeCatalogModels,
   fetchLibraryModelSelectMerge,
+  isLocalRuntimeCatalogProviderId,
   LIBRARY_MODEL_OPTGROUP_LABEL,
   LIBRARY_MODEL_PROVIDER_ID,
   libraryModelLoadState,
@@ -10,6 +11,7 @@ import {
 import { fetchModelsForAllProviders } from '../providers/fetch-all-models';
 import { fetchModelsForProvider } from '../providers/fetch-models';
 import { listProviders } from '../providers/store';
+import type { ProviderPublic } from '../providers/types';
 
 /** Label for empty model option (inherits active chat model at runtime). */
 export const MODEL_SELECT_EMPTY_LABEL = '(use chat default)';
@@ -18,7 +20,43 @@ export type FillProviderSelectOptions = {
   includeEmptyOption?: boolean;
   /** Include synthetic My Models (`minnow-library`) for Minnow-hosted weights. */
   includeLibraryProvider?: boolean;
+  /** Hide llama-cpp-local / mlx-lm-local when My Models is the picker surface. */
+  omitLocalRuntimeProviders?: boolean;
+  /** Put My Models first so Add-model and default picks prefer the library. */
+  libraryProviderFirst?: boolean;
 };
+
+/** Visible provider rows for a select (My Models is synthetic, not a registry id). */
+export interface FillProviderOption {
+  id: string;
+  label: string;
+}
+
+/**
+ * Registry providers plus optional My Models, with local-runtime catalogs omitted
+ * when the library option is the user-facing surface.
+ */
+export function listFillProviderOptions(
+  providers: ProviderPublic[],
+  options?: Pick<
+    FillProviderSelectOptions,
+    'includeLibraryProvider' | 'omitLocalRuntimeProviders' | 'libraryProviderFirst'
+  >,
+): FillProviderOption[] {
+  const omitLocal = options?.omitLocalRuntimeProviders === true;
+  const out: FillProviderOption[] = [];
+  for (const provider of providers) {
+    if (provider.enabled === false) continue;
+    if (omitLocal && isLocalRuntimeCatalogProviderId(provider.id)) continue;
+    out.push({ id: provider.id, label: provider.label || provider.id });
+  }
+  if (options?.includeLibraryProvider && isServerStorageMode()) {
+    const library = { id: LIBRARY_MODEL_PROVIDER_ID, label: LIBRARY_MODEL_OPTGROUP_LABEL };
+    if (options.libraryProviderFirst) out.unshift(library);
+    else out.push(library);
+  }
+  return out;
+}
 
 export type FillModelSelectOptions = {
   includeEmptyOption?: boolean;
@@ -224,20 +262,13 @@ export async function fillProviderSelect(
   }
 
   const { providers } = await listProviders();
+  const choices = listFillProviderOptions(providers, options);
   let added = 0;
-  for (const p of providers) {
-    if (p.enabled === false) continue;
+  for (const choice of choices) {
     const opt = document.createElement('option');
-    opt.value = p.id;
-    opt.textContent = p.label || p.id;
+    opt.value = choice.id;
+    opt.textContent = choice.label;
     select.appendChild(opt);
-    added += 1;
-  }
-  if (options?.includeLibraryProvider && isServerStorageMode()) {
-    const libraryOpt = document.createElement('option');
-    libraryOpt.value = LIBRARY_MODEL_PROVIDER_ID;
-    libraryOpt.textContent = LIBRARY_MODEL_OPTGROUP_LABEL;
-    select.appendChild(libraryOpt);
     added += 1;
   }
   if (added === 0) {

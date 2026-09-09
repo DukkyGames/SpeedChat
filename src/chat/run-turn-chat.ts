@@ -1458,12 +1458,24 @@ export async function runChatTurn(options: RunChatTurnOptions): Promise<boolean>
           liveStreamMeta = {};
           publishLiveStats({ lastDelta: '', lastThinking: '' }, true, {});
         }
+        if (event.type === 'loading_model') {
+          streamStatus?.setPhase('loading_model');
+          setSidebarStreamPhase('loading_model', chat.id);
+          patchMainTurnActivity(chat.id, {
+            phase: 'loading_model',
+            currentTool: null,
+          });
+        }
         if (event.type === 'phase') {
           if (event.phase === 'thinking' || event.phase === 'generating') {
             patchMainTurnActivity(chat.id, {
               phase: event.phase,
               currentTool: null,
             });
+            if (event.phase === 'generating') {
+              streamStatus?.setPhase('generating');
+              setSidebarStreamPhase('generating', chat.id);
+            }
           }
         }
         if (event.type === 'tool_streaming') {

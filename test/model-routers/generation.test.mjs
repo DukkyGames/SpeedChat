@@ -91,3 +91,63 @@ test('disabling a queued entry wakes its waiter and binds it to the replacement'
   finally { router.entries[0].enabled = true; }
   assert.deepEqual(calls, ['primary', 'backup']);
 });
+
+test('My Models router entries remap and complete through the bound upstream', async () => {
+  const { setLibraryServeDepsForTests } = await import('../../server/model-routers/library-serve.js');
+  const { setLibraryBindingDepsForTests } = await import('../../server/models/library-binding.js');
+  const libraryId = 'gguf:qwen/Qwen3.5-9B:weights.Q4_K_M.gguf';
+  setLibraryBindingDepsForTests({
+    listCachedModels: async () => ({
+      models: [{
+        repo_id: 'qwen/Qwen3.5-9B',
+        path: '/models/hub/qwen--Qwen3.5-9B',
+        is_local_dir: true,
+        gguf_files: [{ name: 'Qwen3.5-9B.Q4_K_M.gguf', rel_path: 'weights.Q4_K_M.gguf', size_bytes: 6000, role: 'model' }],
+      }],
+    }),
+    findLiveLlamaCppServe: async () => null,
+    findLiveMlxServe: async () => null,
+    listServes: async () => [],
+    startServe: async () => ({ id: 's', runtime: 'llama-cpp', status: 'running', modelLabel: 'primary' }),
+    getServe: async () => null,
+    sleep: async () => {},
+    now: () => 0,
+  });
+  setLibraryServeDepsForTests({
+    resolveLibraryId: async () => libraryId,
+    findLiveLlamaCppServe: async () => null,
+    findLiveMlxServe: async () => null,
+    listServes: async () => [],
+    listGenerationStates: () => [],
+    resolveBinding: async () => ({ providerId: 'router-test', id: 'primary' }),
+    sleep: async () => {},
+    now: () => Date.now(),
+    loadTimeoutMs: 5_000,
+  });
+  const previous = { revision: workspace.revision, defaultRouterId: workspace.defaultRouterId, routers: structuredClone(workspace.routers) };
+  try {
+    await workspace.save({
+      revision: workspace.revision,
+      defaultRouterId: 'lib',
+      routers: [{
+        id: 'lib',
+        name: 'Library',
+        enabled: true,
+        policy: 'priority',
+        entries: [{ id: 'e1', providerId: 'minnow-library', modelId: libraryId, enabled: true, concurrencyLimit: 1 }],
+      }],
+    });
+    mode = 'healthy'; calls = [];
+    const state = createGenerationState({ providerId: 'minnow-router', chatId: 'library-chat', body: { model: 'lib', messages: [{ role: 'user', content: 'hi' }], stream: true } });
+    await runRouterGeneration(state);
+    assert.equal(state.status, 'complete');
+    assert.deepEqual(calls, ['primary']);
+    const text = Buffer.concat(state.chunks).toString();
+    assert.match(text, /"phase":"loading"/);
+    assert.match(text, /"phase":"generating"/);
+  } finally {
+    setLibraryServeDepsForTests(null);
+    setLibraryBindingDepsForTests(null);
+    await workspace.save({ ...previous, revision: workspace.revision });
+  }
+});

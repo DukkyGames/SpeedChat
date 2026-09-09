@@ -1,8 +1,28 @@
 import '../../styles/model-routers.css';
-import { loadRouterConfig, saveRouterConfig, routerApi, type ModelRouter, type RouterActivity, type RouterConfig } from '../../models/routers';
-import { listProviders } from '../../providers/store';
+import { formatModelLabel } from '../../lib/format-model-label';
+import type { LibraryModel } from '../../models/library';
+import {
+  fetchLibraryModelSelectMerge,
+  LIBRARY_MODEL_PROVIDER_ID,
+  libraryModelLoadState,
+  type LibraryModelSelectMerge,
+} from '../../models/model-select-library';
+import {
+  loadRouterConfig,
+  remapRouterEntriesToLibrary,
+  routerApi,
+  routerEntryModelLabel,
+  routerEntryProviderLabel,
+  saveRouterConfig,
+  type ModelRouter,
+  type RouterActivity,
+  type RouterConfig,
+  type RouterEntry,
+} from '../../models/routers';
 import { fetchModelsForAllProviders } from '../../providers/fetch-all-models';
+import { listProviders } from '../../providers/store';
 import { sessionState as state } from '../../state/sessions';
+import { listFillProviderOptions } from '../settings-model-binding';
 
 function node<K extends keyof HTMLElementTagNameMap>(tag: K, text = '', className = ''): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag); el.textContent = text; el.className = className; return el;
@@ -11,6 +31,35 @@ function button(text: string, action: () => void): HTMLButtonElement {
   const el = node('button', text); el.type = 'button'; el.addEventListener('click', action); return el;
 }
 function field(text: string, control: HTMLElement): HTMLLabelElement { const el = node('label', text); el.append(control); return el; }
+
+/** Keep a persisted id selectable even when it dropped out of the live catalog. */
+function ensureSelectValue(select: HTMLSelectElement, value: string, missingLabel: string): void {
+  if (value && ![...select.options].some((option) => option.value === value)) {
+    select.append(new Option(`${missingLabel} (unavailable)`, value));
+  }
+  select.value = value;
+}
+
+/** Fill a router model select from My Models (display name + quant + load state). */
+function fillLibraryModelOptions(
+  select: HTMLSelectElement,
+  library: LibraryModel[],
+  serves: LibraryModelSelectMerge['serves'],
+): void {
+  select.replaceChildren();
+  for (const model of library) {
+    const stateLabel = libraryModelLoadState(model, serves);
+    const { optionText, title } = formatModelLabel({
+      id: model.name,
+      quantization: model.quant || undefined,
+      state: stateLabel,
+    });
+    const option = new Option(optionText, model.id);
+    option.title = title;
+    select.append(option);
+  }
+}
+
 let dispose: (() => void) | undefined;
 
 export async function mountRoutersPanel(): Promise<void> {
@@ -25,8 +74,19 @@ export async function mountRoutersPanel(): Promise<void> {
     let config: RouterConfig = structuredClone(await loadRouterConfig());
     if (!alive) return;
     const { providers } = await listProviders();
+    const providerChoices = listFillProviderOptions(providers, {
+      includeLibraryProvider: true,
+      omitLocalRuntimeProviders: true,
+      libraryProviderFirst: true,
+    });
     const catalogs = await fetchModelsForAllProviders(providers.filter((p) => p.enabled), new AbortController().signal);
+    const libraryMerge = await fetchLibraryModelSelectMerge().catch(() => null);
+    const library = libraryMerge?.library ?? [];
     if (!alive) return;
+    let remapped = false;
+    for (const router of config.routers) {
+      if (remapRouterEntriesToLibrary(router.entries, library)) remapped = true;
+    }
     let selected = config.routers[0]?.id || '';
     let dirty = false;
     let saving = false;
@@ -39,6 +99,7 @@ export async function mountRoutersPanel(): Promise<void> {
     let liveEpoch = 0;
     const save = button('Save configuration', () => { void commit(); });
     const markDirty = (): void => { dirty = true; save.disabled = false; message.textContent = 'Unsaved changes'; };
+    if (remapped) markDirty();
     async function commit(): Promise<void> {
       if (saving) return;
       saving = true; save.disabled = true; root.inert = true; root.setAttribute('aria-busy', 'true');
@@ -54,6 +115,35 @@ export async function mountRoutersPanel(): Promise<void> {
     }), save);
     root.append(bar, message, editor, live); host.replaceChildren(root);
 
+    function fillEntryModels(modelSelect: HTMLSelectElement, entry: RouterEntry): void {
+      if (entry.providerId === LIBRARY_MODEL_PROVIDER_ID) {
+        fillLibraryModelOptions(modelSelect, library, libraryMerge?.serves ?? []);
+      } else {
+        const models = catalogs.find((c) => c.provider.id === entry.providerId)?.models || [];
+        modelSelect.replaceChildren(
+          ...models
+            .filter((m) => m.type === 'llm' || m.type === 'vlm' || !m.type)
+            .map((m) => new Option(m.id, m.id)),
+        );
+      }
+      ensureSelectValue(modelSelect, entry.modelId, entry.modelId);
+    }
+
+    function firstUnusedModel(): { providerId: string; modelId: string } | null {
+      const used = new Set(current()?.entries.map((e) => `${e.providerId}\0${e.modelId}`) ?? []);
+      const unusedLibrary = library.find((model) => !used.has(`${LIBRARY_MODEL_PROVIDER_ID}\0${model.id}`));
+      if (unusedLibrary) return { providerId: LIBRARY_MODEL_PROVIDER_ID, modelId: unusedLibrary.id };
+      const catalog = catalogs.find((c) =>
+        providerChoices.some((choice) => choice.id === c.provider.id) &&
+        c.models.some((m) => (m.type === 'llm' || m.type === 'vlm' || !m.type) && !used.has(`${c.provider.id}\0${m.id}`)),
+      );
+      const model = catalog?.models.find((m) =>
+        (m.type === 'llm' || m.type === 'vlm' || !m.type) && !used.has(`${catalog.provider.id}\0${m.id}`),
+      );
+      if (!catalog || !model) return null;
+      return { providerId: catalog.provider.id, modelId: model.id };
+    }
+
     function render(): void {
       liveEpoch++;
       picker.replaceChildren(...config.routers.map((r) => new Option(r.name, r.id)));
@@ -61,7 +151,10 @@ export async function mountRoutersPanel(): Promise<void> {
       save.disabled = !dirty;
       editor.replaceChildren(); live.replaceChildren();
       const router = current();
-      if (!router) { editor.append(node('p', 'Create a router to share model capacity across chats. Add models from your configured providers, then select the router in any chat.')); return; }
+      if (!router) {
+        editor.append(node('p', 'Create a router to share model capacity across chats. Add models from My Models or your configured providers, then select the router in any chat.'));
+        return;
+      }
       const header = node('div', '', 'router-fields');
       const name = node('input'); name.value = router.name; name.maxLength = 100;
       name.oninput = () => { router.name = name.value; markDirty(); };
@@ -72,22 +165,28 @@ export async function mountRoutersPanel(): Promise<void> {
       const defaultToggle = node('input'); defaultToggle.type = 'checkbox'; defaultToggle.checked = config.defaultRouterId === router.id;
       defaultToggle.onchange = () => { config.defaultRouterId = defaultToggle.checked ? router.id : null; markDirty(); };
       header.append(field('Name', name), field('Policy', policy), field('Enabled', enabled), field('Default for new chats', defaultToggle));
-      editor.append(header, node('p', 'Chats keep their assigned model. When it is full, they wait; if it fails, the response restarts on another eligible model.'));
+      editor.append(header, node('p', 'Chats keep their assigned model. When it is full, they wait; if it fails, the response restarts on another eligible model. My Models entries load when needed and unload after in-flight local work finishes.'));
       const list = node('ol', '', 'router-entry-list');
       router.entries.forEach((entry, index) => {
         const row = node('li'); row.dataset.entryId = entry.id;
         const provider = node('select'); provider.setAttribute('aria-label', `Provider for rank ${index + 1}`);
-        provider.append(...providers.map((p) => new Option(p.label, p.id)));
-        if (![...provider.options].some((o) => o.value === entry.providerId)) provider.append(new Option(`${entry.providerId} (missing)`, entry.providerId));
-        provider.value = entry.providerId;
+        provider.append(...providerChoices.map((choice) => new Option(choice.label, choice.id)));
+        ensureSelectValue(provider, entry.providerId, entry.providerId);
         const model = node('select'); model.setAttribute('aria-label', `Model for rank ${index + 1}`);
-        const fillModels = (): void => {
-          model.replaceChildren(...(catalogs.find((c) => c.provider.id === entry.providerId)?.models || []).map((m) => new Option(m.id, m.id)));
-          if (entry.modelId && ![...model.options].some((o) => o.value === entry.modelId)) model.append(new Option(`${entry.modelId} (unavailable)`, entry.modelId));
-          model.value = entry.modelId;
+        fillEntryModels(model, entry);
+        provider.onchange = () => {
+          entry.providerId = provider.value;
+          if (entry.providerId === LIBRARY_MODEL_PROVIDER_ID) {
+            entry.modelId = library.find((m) => !router.entries.some((e) => e !== entry && e.providerId === LIBRARY_MODEL_PROVIDER_ID && e.modelId === m.id))?.id
+              || library[0]?.id
+              || '';
+          } else {
+            const catalog = catalogs.find((c) => c.provider.id === entry.providerId);
+            entry.modelId = catalog?.models.find((m) => m.type === 'llm' || m.type === 'vlm' || !m.type)?.id || '';
+          }
+          fillEntryModels(model, entry);
+          markDirty();
         };
-        fillModels();
-        provider.onchange = () => { entry.providerId = provider.value; entry.modelId = catalogs.find((c) => c.provider.id === entry.providerId)?.models[0]?.id || ''; fillModels(); markDirty(); };
         model.onchange = () => { entry.modelId = model.value; markDirty(); };
         const capacity = node('input'); capacity.type = 'number'; capacity.min = '1'; capacity.max = '100'; capacity.value = String(entry.concurrencyLimit);
         capacity.oninput = () => { entry.concurrencyLimit = Number(capacity.value); markDirty(); };
@@ -109,10 +208,9 @@ export async function mountRoutersPanel(): Promise<void> {
       configuration.open = dirty || !router.entries.length;
       configuration.append(node('summary', `Configure entries (${router.entries.length})`));
       configuration.append(list, button('Add model', () => {
-        const catalog = catalogs.find((c) => c.models.some((m) => !router.entries.some((e) => e.providerId === c.provider.id && e.modelId === m.id)));
-        const model = catalog?.models.find((m) => !router.entries.some((e) => e.providerId === catalog.provider.id && e.modelId === m.id));
-        if (!catalog || !model) { message.textContent = 'No additional models available. Configure a provider in Models → Providers.'; return; }
-        router.entries.push({ id: crypto.randomUUID(), providerId: catalog.provider.id, modelId: model.id, enabled: true, concurrencyLimit: 1 }); markDirty(); render();
+        const next = firstUnusedModel();
+        if (!next) { message.textContent = 'No additional models available. Download a model in My Models or configure a provider in Models → Providers.'; return; }
+        router.entries.push({ id: crypto.randomUUID(), providerId: next.providerId, modelId: next.modelId, enabled: true, concurrencyLimit: 1 }); markDirty(); render();
       }), button('Delete router', () => {
         config.routers = config.routers.filter((r) => r.id !== router.id);
         if (config.defaultRouterId === router.id) config.defaultRouterId = null;
@@ -143,10 +241,11 @@ export async function mountRoutersPanel(): Promise<void> {
         const request = activity.requests.find((r) => r.chatId === assignment.chatId);
         const targetEntry = router.entries.find((e) => e.id === (request?.entryId || assignment.assignedEntryId));
         const row = node('div', '', 'router-chat'); row.dataset.target = targetEntry?.id || ''; row.dataset.status = request?.status || 'idle';
-        row.append(node('strong', state?.chats.find((c) => c.id === assignment.chatId)?.name || assignment.chatId), node('span', `${request?.status === 'queued' ? 'Queued · waiting for capacity' : request?.status === 'active' ? 'Generating' : 'Idle'} → ${targetEntry?.modelId || 'Unavailable model'}`));
+        const modelName = targetEntry ? routerEntryModelLabel(targetEntry, library) : 'Unavailable model';
+        row.append(node('strong', state?.chats.find((c) => c.id === assignment.chatId)?.name || assignment.chatId), node('span', `${request?.status === 'queued' ? 'Queued · waiting for capacity' : request?.status === 'active' ? 'Generating' : 'Idle'} → ${modelName}`));
         const override = node('select'); override.setAttribute('aria-label', 'Persistent model override');
         override.title = 'Applies to the next generation. Choose Router assignment to clear.';
-        override.append(new Option('Router assignment', ''), ...router.entries.filter((e) => e.enabled).map((e) => new Option(`${e.providerId} / ${e.modelId}`, e.id)));
+        override.append(new Option('Router assignment', ''), ...router.entries.filter((e) => e.enabled).map((e) => new Option(`${routerEntryProviderLabel(e, providerChoices)} / ${routerEntryModelLabel(e, library)}`, e.id)));
         override.value = assignment.overrideEntryId || '';
         override.onchange = () => { void routerApi(`/${router.id}/override`, { chatId: assignment.chatId, entryId: override.value || null }, 'POST').then(() => { override.blur(); void refresh(); }).catch((error) => { message.textContent = error.message; }); };
         row.append(override); chats.append(row);
@@ -154,7 +253,7 @@ export async function mountRoutersPanel(): Promise<void> {
       for (const [index, entry] of router.entries.entries()) {
         const activityEntry = activity.entries.find((e) => e.entryId === entry.id);
         const card = node('div', '', 'router-node'); card.dataset.node = entry.id;
-        const inspect = button(`${index + 1}. ${entry.modelId}`, () => {
+        const inspect = button(`${index + 1}. ${routerEntryModelLabel(entry, library)}`, () => {
           if (typeof detail.togglePopover === 'function') {
             const bounds = inspect.getBoundingClientRect();
             detail.style.left = `${Math.max(16, Math.min(bounds.left, window.innerWidth - 396))}px`;
@@ -179,8 +278,8 @@ export async function mountRoutersPanel(): Promise<void> {
         const cost = stats?.usageSamples && rates && (stats.promptTokens || stats.completionTokens)
           ? `${((stats.promptTokens * rates.inputPer1M + stats.completionTokens * rates.outputPer1M) / 1000000).toFixed(5)} ${pricing?.currency || 'USD'} (configured rates)` : 'not available';
         detail.textContent = stats ? `Average generation latency: ${Math.round(stats.latencyMs / stats.completed)} ms · Error rate: ${Math.round(100 * stats.errors / stats.completed)}% · Tokens: ${stats.usageSamples ? stats.tokens : 'not reported'} · Estimated cost: ${cost}` : 'No completed generations this session. Latency, errors, reported tokens, and estimated cost appear here.';
-        const meter = node('progress'); meter.max = entry.concurrencyLimit; meter.value = activityEntry?.active || 0; meter.setAttribute('aria-label', `${entry.modelId} occupied generation slots`);
-        card.append(inspect, node('span', providers.find((p) => p.id === entry.providerId)?.label || entry.providerId), node('span', activity.availability[entry.id]?.reason || 'Checking availability'), meter, node('span', `${activityEntry?.active || 0} / ${entry.concurrencyLimit} active · ${activityEntry?.queued || 0} queued`), detail);
+        const meter = node('progress'); meter.max = entry.concurrencyLimit; meter.value = activityEntry?.active || 0; meter.setAttribute('aria-label', `${routerEntryModelLabel(entry, library)} occupied generation slots`);
+        card.append(inspect, node('span', routerEntryProviderLabel(entry, providerChoices)), node('span', activity.availability[entry.id]?.reason || 'Checking availability'), meter, node('span', `${activityEntry?.active || 0} / ${entry.concurrencyLimit} active · ${activityEntry?.queued || 0} queued`), detail);
         models.append(card);
       }
       const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.classList.add('router-connections'); svg.setAttribute('aria-hidden', 'true');

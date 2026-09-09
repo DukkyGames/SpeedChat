@@ -1,5 +1,14 @@
-import { getWorkspacePath } from '../state/workspace';
+import { formatModelLabel } from '../lib/format-model-label';
 import { decodeModelSelectKey, encodeModelSelectKey } from '../lib/model-select-key';
+import type { LibraryModel } from './library';
+import {
+  isLibraryModelBinding,
+  isLocalRuntimeCatalogProviderId,
+  LIBRARY_MODEL_OPTGROUP_LABEL,
+  LIBRARY_MODEL_PROVIDER_ID,
+  resolveLibraryModelIdForChatBinding,
+} from './model-select-library';
+import { getWorkspacePath } from '../state/workspace';
 
 export const ROUTER_PROVIDER_ID = 'minnow-router';
 export interface RouterEntry { id: string; providerId: string; modelId: string; enabled: boolean; concurrencyLimit: number }
@@ -35,6 +44,52 @@ export function routerChatModelLabel(chat: { providerId?: string; modelId?: stri
   const router = getRouterConfigSync().routers.find((r) => r.id === chat.modelId);
   return router ? `${router.name} · Router` : 'Unavailable router';
 }
+/** Provider label for a router entry (My Models instead of llama.cpp / mlx-lm). */
+export function routerEntryProviderLabel(
+  entry: RouterEntry,
+  providers: Array<{ id: string; label: string }>,
+): string {
+  if (
+    entry.providerId === LIBRARY_MODEL_PROVIDER_ID ||
+    isLibraryModelBinding(entry.providerId, entry.modelId) ||
+    isLocalRuntimeCatalogProviderId(entry.providerId)
+  ) {
+    return LIBRARY_MODEL_OPTGROUP_LABEL;
+  }
+  return providers.find((p) => p.id === entry.providerId)?.label || entry.providerId;
+}
+
+/** Human model name for a router entry (library display name when known). */
+export function routerEntryModelLabel(entry: RouterEntry, library: LibraryModel[]): string {
+  if (entry.providerId === LIBRARY_MODEL_PROVIDER_ID || isLibraryModelBinding(entry.providerId, entry.modelId)) {
+    const row = library.find((model) => model.id === entry.modelId);
+    if (row) {
+      return formatModelLabel({
+        id: row.name,
+        quantization: row.quant || undefined,
+      }).optionText;
+    }
+  }
+  return entry.modelId;
+}
+
+/** Rewrite llama-cpp-local / mlx-lm-local entries onto minnow-library ids when they match My Models. */
+export function remapRouterEntriesToLibrary(
+  entries: RouterEntry[],
+  library: LibraryModel[],
+): boolean {
+  let changed = false;
+  for (const entry of entries) {
+    if (isLibraryModelBinding(entry.providerId, entry.modelId)) continue;
+    const libraryId = resolveLibraryModelIdForChatBinding(entry.providerId, entry.modelId, library);
+    if (!libraryId) continue;
+    entry.providerId = LIBRARY_MODEL_PROVIDER_ID;
+    entry.modelId = libraryId;
+    changed = true;
+  }
+  return changed;
+}
+
 export function noteRouterAssignment(chatId: string, providerId: string, modelId: string, routerId: string): void {
   assignments.set(JSON.stringify([routerId, chatId]), `${providerId} / ${modelId}`);
   window.dispatchEvent(new window.Event('minnow-router-assignment'));

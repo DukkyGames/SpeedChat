@@ -421,6 +421,16 @@ function createSubAgentRunner(deps) {
     const decoder = new TextDecoder();
     const sseBuffer = createSseEventBuffer();
     function handleChunk(chunk) {
+      if (chunk.minnow_router) {
+        if (chunk.minnow_router.phase === 'loading' || chunk.minnow_router.phase === 'waiting') {
+          onTurnEvent?.({ type: 'loading_model' });
+          if (!chunk.minnow_router.reset) return;
+        }
+        if (chunk.minnow_router.phase === 'generating' && !chunk.minnow_router.reset) {
+          onTurnEvent?.({ type: 'phase', phase: 'generating' });
+          return;
+        }
+      }
       if (chunk.minnow_router?.reset) {
         proseText = carriedText;
         reasoningText = streamOptions?.carriedReasoning ?? '';

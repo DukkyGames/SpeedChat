@@ -10,6 +10,7 @@ import {
   pickEvictions,
   resolveModelsMax,
   resolveResidencyLimits,
+  serveHasInFlightGenerations,
   serveMatchesModelId,
 } from '../../server/models/admit-serve.js';
 import { GIB } from '../../src/models/memory-model.mjs';
@@ -173,6 +174,35 @@ describe('serveMatchesModelId', () => {
     assert.equal(serveMatchesModelId(row, 'alpha-8b-Q4_K_M.gguf'), true);
     assert.equal(serveMatchesModelId(row, 'alpha-8b-Q4_K_M'), true);
     assert.equal(serveMatchesModelId(row, 'lib-beta'), false);
+  });
+});
+
+describe('serveHasInFlightGenerations', () => {
+  const serve = { libraryId: 'gguf:qwen/qwen3:file.gguf', modelLabel: 'Qwen3-8B', modelPath: '/models/Qwen3-8B.gguf' };
+
+  test('ignores parent router states and completed generations', () => {
+    assert.equal(
+      serveHasInFlightGenerations(serve, [
+        { status: 'streaming', providerId: 'minnow-router', chosenProviderId: 'minnow-router' },
+        { status: 'complete', providerId: 'llama-cpp-local', chosenProviderId: 'llama-cpp-local', chosenModelId: 'Qwen3-8B' },
+      ]),
+      false,
+    );
+  });
+
+  test('matches a live llama.cpp child bound to this serve', () => {
+    assert.equal(
+      serveHasInFlightGenerations(serve, [
+        {
+          status: 'streaming',
+          providerId: 'llama-cpp-local',
+          chosenProviderId: 'llama-cpp-local',
+          chosenModelId: 'Qwen3-8B',
+          routerAttempt: true,
+        },
+      ]),
+      true,
+    );
   });
 });
 

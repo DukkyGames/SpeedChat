@@ -219,9 +219,88 @@ async function resolveCachedTarget(libraryId, deps) {
 
 /**
  * @param {string} libraryId
+ * @param {LibraryBindingDeps} [deps]
+ * @returns {Promise<object | null>}
+ */
+export async function resolveLibraryCachedTarget(libraryId, deps = {}) {
+  return resolveCachedTarget(libraryId, mergeDeps(deps));
+}
+
+/** True when a cached HF/library row has a projector sibling (VLM). */
+export function libraryCachedRowHasVision(row) {
+  const files = Array.isArray(row?.gguf_files) ? row.gguf_files : [];
+  return files.some(
+    (file) =>
+      file?.role === 'projector' ||
+      (typeof file?.name === 'string' && /mmproj/i.test(file.name)),
+  );
+}
+
+/**
+ * @param {string} libraryId
+ * @param {LibraryBindingDeps} [deps]
+ */
+export async function findLibraryCachedRow(libraryId, deps = {}) {
+  const parsed = parseLibraryId(libraryId);
+  if (!parsed) return null;
+  const payload = await mergeDeps(deps).listCachedModels();
+  const models = Array.isArray(payload?.models) ? payload.models : [];
+  return models.find((m) => m && m.repo_id === parsed.repoId) ?? null;
+}
+
+/**
+ * Map a persisted llama-cpp-local / mlx-lm-local router pair back to a library id.
+ * @param {string} providerId
+ * @param {string} modelId
+ * @param {LibraryBindingDeps} [deps]
+ * @returns {Promise<string | null>}
+ */
+export async function resolveLibraryIdForProviderModel(providerId, modelId, deps = {}) {
+  const pid = providerId?.trim() ?? '';
+  const mid = modelId?.trim() ?? '';
+  if (!pid || !mid) return null;
+  if (isLibraryModelBinding(pid, mid)) return mid;
+  if (pid !== LLAMA_CPP_LOCAL_ID && pid !== MLX_LM_LOCAL_ID) return null;
+  const payload = await mergeDeps(deps).listCachedModels();
+  const models = Array.isArray(payload?.models) ? payload.models : [];
+  const want = mid.toLowerCase();
+  if (pid === MLX_LM_LOCAL_ID) {
+    for (const row of models) {
+      const snapshot = typeof row?.mlx_root === 'string' ? row.mlx_root.trim() : '';
+      const repo = typeof row?.repo_id === 'string' ? row.repo_id.trim() : '';
+      if (snapshot && (snapshot === mid || snapshot.toLowerCase() === want)) return `mlx:${repo}`;
+      if (repo && repo.toLowerCase() === want) return `mlx:${repo}`;
+    }
+    return null;
+  }
+  for (const row of models) {
+    const files = Array.isArray(row?.gguf_files) ? row.gguf_files : [];
+    const repo = typeof row?.repo_id === 'string' ? row.repo_id.trim() : '';
+    for (const file of files) {
+      const rel = typeof file?.rel_path === 'string' ? file.rel_path.trim() : '';
+      const name = typeof file?.name === 'string' ? file.name.trim() : '';
+      const stem = name.replace(/\.gguf$/i, '');
+      if (!rel) continue;
+      if (
+        mid === stem ||
+        mid === name ||
+        mid === rel ||
+        want === stem.toLowerCase() ||
+        want === name.toLowerCase() ||
+        want === rel.toLowerCase()
+      ) {
+        return `gguf:${repo}:${rel}`;
+      }
+    }
+  }
+  return null;
+}
+
+/**
+ * @param {string} libraryId
  * @returns {{ kind: 'gguf', repoId: string, relPath: string } | { kind: 'mlx', repoId: string } | null}
  */
-function parseLibraryId(libraryId) {
+export function parseLibraryId(libraryId) {
   const id = libraryId.trim();
   if (id.startsWith('mlx:')) {
     const repoId = id.slice(4).trim();

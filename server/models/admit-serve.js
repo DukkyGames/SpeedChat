@@ -139,3 +139,22 @@ export function serveMatchesModelId(row, modelId) {
   const idLower = id.toLowerCase();
   return needles.some((needle) => needle === id || needle.toLowerCase() === idLower);
 }
+
+/**
+ * True when a pending/streaming generation is bound to this serve.
+ * Parent router states (`minnow-router` without routerAttempt) are ignored.
+ * @param {object | null | undefined} serve
+ * @param {object[]} generations
+ */
+export function serveHasInFlightGenerations(serve, generations) {
+  if (!serve || !Array.isArray(generations)) return false;
+  return generations.some((state) => {
+    if (state.status !== 'pending' && state.status !== 'streaming') return false;
+    if (state.providerId === 'minnow-router' && !state.routerAttempt) return false;
+    const pid = state.chosenProviderId || state.providerId;
+    if (pid !== 'llama-cpp-local' && pid !== 'mlx-lm-local') return false;
+    const mid = typeof state.chosenModelId === 'string' ? state.chosenModelId.trim() : '';
+    if (!mid) return true;
+    return serveMatchesModelId(serve, mid);
+  });
+}

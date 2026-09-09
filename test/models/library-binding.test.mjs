@@ -237,3 +237,13 @@ describe('resolveLibraryAttemptBinding', () => {
     assert.deepEqual(bound, { providerId: LLAMA_CPP_LOCAL_ID, id: 'Qwen3.5-9B' });
   });
 });
+
+describe('resolveLibraryIdForProviderModel', () => {
+  test('maps a llama-cpp-local label onto a cached GGUF library id', async () => {
+    const { resolveLibraryIdForProviderModel } = await import('../../server/models/library-binding.js');
+    const id = await resolveLibraryIdForProviderModel(LLAMA_CPP_LOCAL_ID, 'Qwen3.5-9B.Q4_K_M', {
+      listCachedModels: async () => ({ models: [GGUF_CACHED] }),
+    });
+    assert.equal(id, GGUF_LIBRARY_ID);
+  });
+});

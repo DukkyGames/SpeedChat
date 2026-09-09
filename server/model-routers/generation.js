@@ -1,8 +1,27 @@
 import { getRouterWorkspace } from './store.js';
 import { routerAvailability, invalidateRouterProvider } from './availability.js';
+import { bindRouterLibraryEntry } from './library-serve.js';
+import { isLibraryModelBinding } from '../models/library-binding.js';
+import { MINNOW_LIBRARY_PROVIDER_ID } from '../providers/store.js';
+import { LLAMA_CPP_LOCAL_ID, MLX_LM_LOCAL_ID } from '../../src/models/runtime-ids.mjs';
 import { entryKey } from './scheduler.js';
 import { pumpUpstreamAsync } from '../generations/upstream.js';
 import { addLocalSubscriber, appendChunk, cancel, createGenerationState, markComplete, markError } from '../generations/store.js';
+
+function isLibraryRouterEntry(entry) {
+  const pid = entry?.providerId;
+  return (
+    isLibraryModelBinding(pid, entry?.modelId) ||
+    pid === MINNOW_LIBRARY_PROVIDER_ID ||
+    pid === LLAMA_CPP_LOCAL_ID ||
+    pid === MLX_LM_LOCAL_ID
+  );
+}
+
+function emitRouterControl(state, body, payload) {
+  if (body.stream === false) return;
+  appendChunk(state, Buffer.from(`\n\ndata: ${JSON.stringify({ minnow_router: payload, choices: [] })}\n\n`));
+}
 
 export function pumpRouterGeneration(state) {
   void runRouterGeneration(state).catch((error) => {
@@ -56,14 +75,36 @@ export async function runRouterGeneration(state) {
       const fresh = await routerAvailability(current, body);
       if (!fresh[entry.id]?.available) throw new Error(fresh[entry.id]?.reason || 'Assigned model unavailable');
       if (controller.signal.aborted || state.status === 'cancelled') return;
-      state.chosenProviderId = entry.providerId;
-      state.chosenModelId = entry.modelId;
-      state.fallbackUsed = attempted.size > 1;
-      if (body.stream !== false) {
-        appendChunk(state, Buffer.from(`\n\ndata: ${JSON.stringify({ minnow_router: { routerId, entryId: entry.id, providerId: entry.providerId, modelId: entry.modelId, reset: Boolean(previousError), warning: previousError ? `Response restarted on ${entry.providerId} / ${entry.modelId} after the previous model failed.` : '' }, choices: [] })}\n\n`));
+
+      const controlBase = {
+        routerId,
+        entryId: entry.id,
+        providerId: entry.providerId,
+        modelId: entry.modelId,
+      };
+      let bound = { providerId: entry.providerId, id: entry.modelId };
+      if (isLibraryRouterEntry(entry)) {
+        emitRouterControl(state, body, { ...controlBase, phase: 'loading', reset: false, warning: '' });
+        bound = await bindRouterLibraryEntry(entry, {
+          signal: controller.signal,
+          onPhase: (phase) => {
+            emitRouterControl(state, body, { ...controlBase, phase, reset: false, warning: '' });
+          },
+        });
       }
+      if (controller.signal.aborted || state.status === 'cancelled') return;
+
+      state.chosenProviderId = bound.providerId;
+      state.chosenModelId = bound.id;
+      state.fallbackUsed = attempted.size > 1;
+      emitRouterControl(state, body, {
+        ...controlBase,
+        phase: 'generating',
+        reset: Boolean(previousError),
+        warning: previousError ? `Response restarted on ${entry.providerId} / ${entry.modelId} after the previous model failed.` : '',
+      });
       if (previousError) workspace.scheduler.emit(router, chatId, entry, 'failover', previousError);
-      child = createGenerationState({ providerId: entry.providerId, body: { ...body, model: entry.modelId }, candidates: [{ providerId: entry.providerId, modelId: entry.modelId }] });
+      child = createGenerationState({ providerId: bound.providerId, body: { ...body, model: bound.id }, candidates: [{ providerId: bound.providerId, modelId: bound.id }] });
       child.routerAttempt = true;
       const abort = () => cancel(child);
       controller.signal.addEventListener('abort', abort, { once: true });

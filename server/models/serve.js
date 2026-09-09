@@ -65,6 +65,7 @@ import {
 import { getServesIndexPath, modelsLogDir } from './paths.js';
 import { validatePort, validateRuntime, validateServeId } from './validate.js';
 import { MODEL_LOAD_TIMEOUT_MS } from './timeouts.js';
+import { listGenerationStates } from '../generations/store.js';
 import { waitForHealth as waitForEndpointHealth } from './wait-for-health.js';
 import {
   classifyServeExit,
@@ -75,6 +76,7 @@ import {
   pickEvictions,
   resolveResidencyLimits,
   SERVE_IDLE_TTL_MS,
+  serveHasInFlightGenerations,
   serveMatchesModelId,
 } from './admit-serve.js';
 
@@ -606,6 +608,18 @@ export async function admitServe(plan) {
     budgetBytes,
   });
   for (const victim of evictions) {
+    const deadline = Date.now() + MODEL_LOAD_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await loadServes();
+      const row = servesCache.find((serve) => serve.id === victim.id);
+      if (!row || !isLiveServeStatus(row.status)) break;
+      if (!serveHasInFlightGenerations(row, listGenerationStates())) break;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    await loadServes();
+    const still = servesCache.find((serve) => serve.id === victim.id);
+    if (!still || !isLiveServeStatus(still.status)) continue;
+    if (serveHasInFlightGenerations(still, listGenerationStates())) continue;
     await stopServe(victim.id, { cause: 'admit' });
   }
 }

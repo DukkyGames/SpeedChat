@@ -38,3 +38,37 @@ test('restart clears pending paints and reasoning and leaves a visible warning',
   assert.equal(wrap.querySelector('[role=status]')?.textContent, 'Response restarted on backup');
   assert.doesNotMatch(wrap.textContent || '', /failed/); wrap.remove();
 });
+
+test('remapRouterEntriesToLibrary rewrites llama-cpp-local onto My Models ids', async () => {
+  const { remapRouterEntriesToLibrary, routerEntryProviderLabel } = await import('../../src/models/routers.ts');
+  const entries = [
+    { id: 'e1', providerId: 'llama-cpp-local', modelId: 'Qwen3-8B', enabled: true, concurrencyLimit: 1 },
+  ];
+  const library = [{
+    id: 'gguf:qwen/qwen3:file.gguf',
+    name: 'Qwen3-8B',
+    repoId: 'qwen/qwen3',
+    publisher: 'qwen',
+    producerSlug: 'qwen',
+    producerName: 'Qwen',
+    producerLogoId: 'Qwen3-8B',
+    format: 'GGUF' as const,
+    quant: 'Q4',
+    arch: 'qwen',
+    domain: 'chat',
+    paramsB: 8,
+    contextLength: 32768,
+    capabilities: [],
+    sizeBytes: 1000,
+    path: '/tmp/file.gguf',
+    fileName: 'file.gguf',
+    source: 'hf-cache' as const,
+    servable: true,
+    incomplete: false,
+    isMoe: false,
+  }];
+  assert.equal(remapRouterEntriesToLibrary(entries, library), true);
+  assert.equal(entries[0].providerId, 'minnow-library');
+  assert.equal(entries[0].modelId, 'gguf:qwen/qwen3:file.gguf');
+  assert.equal(routerEntryProviderLabel(entries[0], []), 'My Models');
+});
